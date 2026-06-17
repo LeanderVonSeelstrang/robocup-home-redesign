@@ -1,17 +1,15 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <meta http-equiv="Cache-Control" content="no-store">
-  <title>Robot Inspection — RoboCup@Home</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="assets/css/styles.css">
-  <link rel="stylesheet" href="assets/referee-tool/css/shared.css">
-  <link rel="stylesheet" href="assets/referee-tool/css/inspection.css">
-</head>
-<body>
+---
+import RefLayout from '../layouts/RefLayout.astro';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<RefLayout
+  title="Robot Inspection — RoboCup@Home"
+  fonts="Space+Mono:wght@400;700&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400"
+  cacheControl={true}
+>
+  <link slot="head" rel="stylesheet" href={`${base}/assets/referee-tool/css/shared.css`} />
+  <link slot="head" rel="stylesheet" href={`${base}/assets/referee-tool/css/inspection.css`} />
+
   <!-- Referee login overlay -->
   <div id="referee-login-overlay" class="ref-login-overlay" hidden>
     <div class="ref-login-card">
@@ -30,7 +28,7 @@
 
   <div id="app" hidden>
     <header id="insp-header">
-      <a id="back-link" class="sheet-nav-link" href="dashboard.html">← Back</a>
+      <a id="back-link" class="sheet-nav-link">← Back</a>
       <div id="insp-title-wrap">
         <div id="insp-team-name">—</div>
         <div id="insp-subtitle">Robot Inspection</div>
@@ -40,11 +38,8 @@
     </header>
 
     <div id="insp-body">
-
-      <!-- CRITERIA SECTION -->
       <section class="insp-section">
         <div class="insp-section-title">Criteria</div>
-
         <div class="insp-check-item" data-field="collisionAvoidance">
           <div class="insp-check-box"></div>
           <div class="insp-check-label">Collision Avoidance</div>
@@ -59,28 +54,23 @@
         </div>
       </section>
 
-      <!-- REGISTRATION SECTION -->
       <section class="insp-section">
         <div class="insp-section-title">Registration</div>
-
         <div class="insp-field">
           <label class="insp-label">External Devices</label>
           <div class="insp-label-hint">List all external devices (wireless controllers, laptops, etc.)</div>
           <textarea id="field-externalDevices" class="insp-textarea" rows="3" placeholder="e.g. Laptop Dell XPS, Xbox controller, Raspberry Pi…"></textarea>
         </div>
-
         <div class="insp-field">
           <label class="insp-label">Start Button</label>
           <div class="insp-label-hint">Describe location and appearance for the referee</div>
           <textarea id="field-startButton" class="insp-textarea" rows="2" placeholder="e.g. Green button on the right side of the torso, labeled START"></textarea>
         </div>
-
         <div class="insp-field">
           <label class="insp-label">Custom Containers</label>
           <div class="insp-label-hint">Describe any custom containers or props the team brings</div>
           <textarea id="field-customContainers" class="insp-textarea" rows="2" placeholder="e.g. Custom red bin with lid, tray with markers…"></textarea>
         </div>
-
         <div class="insp-field">
           <label class="insp-label">Emergency Button</label>
           <div class="insp-label-hint">Location and any notes (e.g. requires extra force)</div>
@@ -88,13 +78,11 @@
         </div>
       </section>
 
-      <!-- NOTES -->
       <section class="insp-section">
         <div class="insp-section-title">Additional Notes</div>
         <textarea id="field-notes" class="insp-textarea" rows="3" placeholder="Any other observations…"></textarea>
       </section>
-
-    </div><!-- /#insp-body -->
+    </div>
 
     <footer id="insp-footer">
       <div id="insp-result-wrap">
@@ -108,6 +96,5 @@
     </footer>
   </div>
 
-  <script type="module" src="assets/referee-tool/js/inspection.js"></script>
-</body>
-</html>
+  <script is:inline type="module" src={`${base}/assets/referee-tool/js/inspection.js`}></script>
+</RefLayout>

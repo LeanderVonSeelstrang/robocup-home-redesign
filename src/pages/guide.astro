@@ -1,0 +1,108 @@
+---
+import Base from '../layouts/Base.astro';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<Base title="RoboCup@Home — Getting Started" description="A practical guide to building and competing with your first RoboCup@Home robot.">
+
+  <div class="page-header">
+    <div class="page-tag">Getting Started</div>
+    <div class="page-title">Your first season.</div>
+    <p class="page-desc">Practical advice for new teams entering RoboCup@Home — from choosing your hardware to competing at your first event.</p>
+  </div>
+
+  <div class="guide-wrap">
+
+    <div class="guide-intro">
+      <p>RoboCup@Home is challenging by design. The tests are open-ended, the environments are unpredictable, and no robot is ever fully ready. This guide is not about building the perfect robot — it is about making smart decisions early so your team can learn quickly and compete effectively within your first one or two seasons.</p>
+    </div>
+
+    <div class="guide-steps">
+
+      <div class="guide-step">
+        <div class="guide-step-number">01</div>
+        <div class="guide-step-body">
+          <div class="guide-step-tag">Robot Capabilities</div>
+          <h2 class="guide-step-title">Start with the fundamentals.</h2>
+          <div class="guide-step-content">
+            <p>Placeholder — you will write this section.</p>
+            <ul>
+              <li>Navigation and speech recognition unlock the most tests — prioritize these before anything else.</li>
+              <li>Build and test in imperfect conditions from day one. Your lab is not the competition arena.</li>
+              <li>A robot that works at 80% reliability in a messy environment beats one that only works in controlled conditions.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="guide-step">
+        <div class="guide-step-number">02</div>
+        <div class="guide-step-body">
+          <div class="guide-step-tag">Software Architecture</div>
+          <h2 class="guide-step-title">Design your software to survive competition day.</h2>
+          <div class="guide-step-content">
+            <p>Placeholder — you will write this section.</p>
+            <ul>
+              <li>Use a behavior framework so logic is reused across tests rather than duplicated.</li>
+              <li>Avoid one big startup script. Each component should be independently restartable in under 30 seconds.</li>
+              <li>Log everything. When something fails in the arena you usually have one minute to diagnose it.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="guide-step">
+        <div class="guide-step-number">03</div>
+        <div class="guide-step-body">
+          <div class="guide-step-tag">Hardware</div>
+          <h2 class="guide-step-title">Choose hardware you can actually maintain.</h2>
+          <div class="guide-step-content">
+            <p>Placeholder — you will write this section.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="guide-step">
+        <div class="guide-step-number">04</div>
+        <div class="guide-step-body">
+          <div class="guide-step-tag">Competitions</div>
+          <h2 class="guide-step-title">Go to a local competition before the world championship.</h2>
+          <div class="guide-step-content">
+            <p>Placeholder — you will write this section.</p>
+            <ul>
+              <li>Local and regional competitions are lower stakes and a much better first experience than the RoboCup world championship.</li>
+              <li>You learn more in two days at a real competition than in months of lab testing.</li>
+              <li>See the competitions page for upcoming events.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="guide-step">
+        <div class="guide-step-number">05</div>
+        <div class="guide-step-body">
+          <div class="guide-step-tag">Strategy</div>
+          <h2 class="guide-step-title">Pick the right tests for your robot.</h2>
+          <div class="guide-step-content">
+            <p>Placeholder — you will write this section.</p>
+            <ul>
+              <li>Read the rulebook and identify two or three tests where your robot's existing strengths apply.</li>
+              <li>Scoring partial points consistently beats attempting hard tests and failing completely.</li>
+              <li>Focus on depth rather than breadth in your first season.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <section class="cta-section">
+    <div class="cta-title">Ready to dive deeper?</div>
+    <p class="cta-sub">Read the official rulebook, join the mailing list, and find your nearest local competition.</p>
+    <div style="display:flex;gap:1rem;justify-content:center;flex-wrap:wrap;">
+      <a href={`${base}/rules`} class="btn-primary">Read the rulebook →</a>
+      <a href={`${base}/competitions`} class="btn-secondary">Find a local competition →</a>
+    </div>
+  </section>
+
+</Base>

@@ -205,7 +205,7 @@ function renderInspectionPanel(compId) {
 
     const row = document.createElement('a');
     row.className = 'team-row';
-    row.href = `inspection.html?${params}`;
+    row.href = `${window.__siteBase || ''}/inspection?${params}`;
     row.innerHTML = `
       <span class="team-name">${team.teamName}</span>
       <span class="run-status ${statusClass}">${statusText}</span>
@@ -375,7 +375,7 @@ function renderSlotCard(slot, compId) {
 
       const row = document.createElement('a');
       row.className = 'team-row';
-      row.href      = isInspection ? `inspection.html?${p}` : `scoresheet.html?${p}`;
+      row.href      = isInspection ? `${window.__siteBase || ''}/inspection?${p}` : `${window.__siteBase || ''}/scoresheet?${p}`;
       row.innerHTML = `
         <span class="team-order">${idx + 1}</span>
         <span class="team-name">${team.teamName}</span>

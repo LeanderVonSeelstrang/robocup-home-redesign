@@ -1,12 +1,9 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Seed RC2027 — RoboCup@Home</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
-  <style>
+---
+import RefLayout from '../layouts/RefLayout.astro';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<RefLayout title="Seed RC2027 — RoboCup@Home">
+  <style is:global slot="head">
     * { box-sizing: border-box; margin: 0; padding: 0; }
     [hidden] { display: none !important; }
     body { font-family: 'DM Sans', sans-serif; background: #1e1f22; color: #dbdee1; min-height: 100vh; display: flex; align-items: flex-start; justify-content: center; padding: 48px 24px; }
@@ -22,23 +19,20 @@
     .dim { color: #848891; }
     .warn{ color: #ffd666; }
   </style>
-</head>
-<body>
-<div class="container">
-  <h1>Seed RoboCup 2027 Demo</h1>
-  <p>Creates competition <strong>rc2027</strong>, resolves teams against the existing database, creates new team entries for any not found, then generates 36 slots (4 tests × 3 days × 3 arenas) with randomly assigned teams.</p>
-  <div class="warning">⚠ This will overwrite any existing rc2027 data. Safe to re-run.</div>
-  <button id="run-btn">Run Seed</button>
-  <div id="log" hidden></div>
-</div>
 
-<script type="module">
+  <div class="container">
+    <h1>Seed RoboCup 2027 Demo</h1>
+    <p>Creates competition <strong>rc2027</strong>, resolves teams against the existing database, creates new team entries for any not found, then generates 36 slots (4 tests × 3 days × 3 arenas) with randomly assigned teams.</p>
+    <div class="warning">⚠ This will overwrite any existing rc2027 data. Safe to re-run.</div>
+    <button id="run-btn">Run Seed</button>
+    <div id="log" hidden></div>
+  </div>
+
+  <script is:inline type="module">
 import { db, ensureAuth } from './assets/referee-tool/js/firebase.js';
 import {
   collection, doc, setDoc, addDoc, getDocs, writeBatch, deleteDoc, query, where
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
-
-// ── CONFIG ────────────────────────────────────────────────────────────────────
 
 const COMP_ID   = 'rc2027';
 const COMP_NAME = 'RoboCup 2027';
@@ -75,8 +69,6 @@ const SCHEDULE = [
 
 const ARENAS = ["Arena A", "Arena B", "Arena C"];
 
-// ── LOGGING ───────────────────────────────────────────────────────────────────
-
 const logEl = document.getElementById('log');
 function log(msg, cls = '') {
   logEl.hidden = false;
@@ -87,14 +79,8 @@ function log(msg, cls = '') {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
-// ── HELPERS ───────────────────────────────────────────────────────────────────
-
 function normalize(str) {
-  return str.toLowerCase()
-    .replace(/[@&+]/g, ' ')
-    .replace(/[^a-z0-9 ]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return str.toLowerCase().replace(/[@&+]/g, ' ').replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
 }
 
 function shuffle(arr) {
@@ -106,56 +92,31 @@ function shuffle(arr) {
   return a;
 }
 
-// ── TEAM RESOLUTION ───────────────────────────────────────────────────────────
-
 async function resolveTeams() {
   log('Resolving teams against database…', 'dim');
-
   const snap      = await getDocs(collection(db, 'teams'));
   const existing  = snap.docs.map(d => d.data());
-
-  // Find max numeric ID to assign new ones from
-  const maxId = existing.reduce((m, t) => {
-    const n = parseInt(t.id);
-    return isNaN(n) ? m : Math.max(m, n);
-  }, 91);
-
+  const maxId = existing.reduce((m, t) => { const n = parseInt(t.id); return isNaN(n) ? m : Math.max(m, n); }, 91);
   const resolved = [];
   let nextId = maxId + 1;
   let newCount = 0;
-
   for (const name of TEAM_NAMES) {
     const normName = normalize(name);
-
-    // Try exact name match first, then normalized
-    let match = existing.find(t =>
-      t.name?.toLowerCase() === name.toLowerCase() ||
-      normalize(t.name) === normName ||
-      (t.altNames || []).some(a => normalize(a) === normName)
-    );
-
+    let match = existing.find(t => t.name?.toLowerCase() === name.toLowerCase() || normalize(t.name) === normName || (t.altNames || []).some(a => normalize(a) === normName));
     if (match) {
       log(`  ✓ matched  "${name}" → ID ${match.id}`, 'ok');
       resolved.push({ id: match.id, name: match.name });
     } else {
       const newId = String(nextId++);
       log(`  + creating "${name}" → ID ${newId}`, 'warn');
-      await setDoc(doc(db, 'teams', newId), {
-        id: newId, name, institution: '', country: '',
-        city: '', lat: null, lng: null,
-        website: '', tdp: '', video: '', contact: '',
-        altNames: [], parentTeams: [],
-      });
+      await setDoc(doc(db, 'teams', newId), { id: newId, name, institution: '', country: '', city: '', lat: null, lng: null, website: '', tdp: '', video: '', contact: '', altNames: [], parentTeams: [] });
       resolved.push({ id: newId, name });
       newCount++;
     }
   }
-
   log(`Team resolution done: ${resolved.length - newCount} matched, ${newCount} created.`, 'dim');
   return resolved;
 }
-
-// ── CLEAR EXISTING SLOTS ──────────────────────────────────────────────────────
 
 async function clearSlots() {
   log('Clearing existing rc2027 slots…', 'dim');
@@ -166,64 +127,31 @@ async function clearSlots() {
   log(`  Removed ${snap.docs.length} existing slot(s).`, 'dim');
 }
 
-// ── SEED ──────────────────────────────────────────────────────────────────────
-
 async function seed() {
   await ensureAuth();
-
-  // Competition
   log('\nCreating competition…', 'dim');
-  await setDoc(doc(db, 'competitions', COMP_ID), {
-    id: COMP_ID, name: COMP_NAME, year: 2027,
-    city: 'TBD', country: 'TBD', adminCreated: true,
-  });
+  await setDoc(doc(db, 'competitions', COMP_ID), { id: COMP_ID, name: COMP_NAME, year: 2027, city: 'TBD', country: 'TBD', adminCreated: true });
   log(`  ✓ ${COMP_NAME} (${COMP_ID})`, 'ok');
-
-  // Teams
   log('');
   const teams = await resolveTeams();
-
-  // Clear old slots
   log('');
   await clearSlots();
-
-  // Create slots
   log('\nGenerating slots…', 'dim');
   let slotCount = 0;
-
   for (const day of SCHEDULE) {
-    // Fresh random assignment for each day
     const shuffled = shuffle(teams);
-    const arenaTeams = ARENAS.map((_, i) =>
-      shuffled.slice(i * 9, (i + 1) * 9)
-    );
-
+    const arenaTeams = ARENAS.map((_, i) => shuffled.slice(i * 9, (i + 1) * 9));
     for (const slotDef of day.slots) {
       for (let a = 0; a < ARENAS.length; a++) {
-        const slotTeams = arenaTeams[a].map((t, i) => ({
-          teamId:   t.id,
-          teamName: t.name,
-          order:    i + 1,
-        }));
-
-        await addDoc(collection(db, 'competitions', COMP_ID, 'slots'), {
-          testId:  slotDef.testId,
-          date:    day.date,
-          time:    slotDef.time,
-          arena:   ARENAS[a],
-          league:  'OPL',
-          teams:   slotTeams,
-          status:  'pending',
-        });
+        const slotTeams = arenaTeams[a].map((t, i) => ({ teamId: t.id, teamName: t.name, order: i + 1 }));
+        await addDoc(collection(db, 'competitions', COMP_ID, 'slots'), { testId: slotDef.testId, date: day.date, time: slotDef.time, arena: ARENAS[a], league: 'OPL', teams: slotTeams, status: 'pending' });
         slotCount++;
       }
     }
     log(`  ✓ ${day.date}: ${day.slots.length * ARENAS.length} slots`, 'ok');
   }
-
   log('');
   log(`Done. Created ${slotCount} slots.`, 'ok');
-  log(`Dashboard: ${location.origin}${location.pathname.replace('seed.html', '')}dashboard.html?competition=rc2027`, 'dim');
 }
 
 document.getElementById('run-btn').addEventListener('click', async () => {
@@ -238,6 +166,5 @@ document.getElementById('run-btn').addEventListener('click', async () => {
     btn.disabled = false;
   }
 });
-</script>
-</body>
-</html>
+  </script>
+</RefLayout>

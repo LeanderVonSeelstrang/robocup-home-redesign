@@ -1112,7 +1112,7 @@ function updateSlotLink(slot) {
     document.getElementById('slot-link').textContent = 'Add teams to generate referee links.';
     return;
   }
-  const base = `${location.origin}${location.pathname.replace('admin.html', '')}`;
+  const base = window.__siteBase || '';
   const links = slot.teams.map(t => {
     const params = new URLSearchParams({
       competition: currentCompetitionId,
@@ -1121,7 +1121,7 @@ function updateSlotLink(slot) {
       teamName: t.teamName,
       test: slot.testId
     });
-    return `${t.teamName}: ${base}scoresheet.html?${params}`;
+    return `${t.teamName}: ${location.origin}${base}/scoresheet?${params}`;
   });
   document.getElementById('slot-link').textContent = links.join('\n');
 }

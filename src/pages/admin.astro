@@ -1,15 +1,10 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Admin — RoboCup@Home Scoring</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="assets/css/styles.css">
-  <link rel="stylesheet" href="assets/referee-tool/css/admin.css">
-</head>
-<body>
+---
+import RefLayout from '../layouts/RefLayout.astro';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<RefLayout title="Admin — RoboCup@Home Scoring">
+  <link slot="head" rel="stylesheet" href={`${base}/assets/referee-tool/css/admin.css`} />
+
   <!-- LOGIN SCREEN -->
   <div id="screen-login" class="login-screen" hidden>
     <div class="login-card">
@@ -166,8 +161,6 @@
 
   <!-- SCREEN: Schedule -->
   <div id="screen-schedule" class="screen screen-schedule" hidden>
-
-    <!-- Controls bar -->
     <div class="card form-card sched-controls-card">
       <div class="field-row" style="align-items:flex-end">
         <div class="field field-narrow">
@@ -184,20 +177,17 @@
       </div>
     </div>
 
-    <!-- No dates warning -->
     <div id="sched-no-dates" class="card" style="text-align:center;padding:48px 24px;color:var(--muted)" hidden>
       <div style="margin-bottom:16px">Set competition start and end dates to build a schedule.</div>
       <button type="button" class="btn-ghost" id="sched-edit-dates-btn">Edit competition dates</button>
     </div>
 
-    <!-- Sidebar + grid -->
     <div id="sched-main" class="sched-main" hidden>
       <div class="sched-sidebar" id="sched-sidebar">
         <div id="sched-test-cards" class="sched-test-cards"></div>
       </div>
       <div class="sched-grid-outer" id="sched-grid-outer"></div>
     </div>
-
   </div>
 
   <!-- SCREEN: Slots (Settings) -->
@@ -235,7 +225,6 @@
         <input type="file" id="test-file-input" accept=".tex" style="display:none" multiple>
       </label>
     </div>
-
   </div>
 
   <!-- SCREEN: Slot Teams -->
@@ -269,7 +258,7 @@
     </div>
   </div>
 
-  <!-- Test preview overlay (shared between "view" and "upload confirm") -->
+  <!-- Test preview overlay -->
   <div id="test-preview-overlay" class="test-preview-overlay" hidden>
     <div class="test-preview-modal">
       <div class="test-preview-header">
@@ -293,7 +282,5 @@
 
   </div><!-- /#admin-app -->
 
-  <script src="assets/js/main.js"></script>
-  <script type="module" src="assets/referee-tool/js/admin.js"></script>
-</body>
-</html>
+  <script is:inline type="module" src={`${base}/assets/referee-tool/js/admin.js`}></script>
+</RefLayout>

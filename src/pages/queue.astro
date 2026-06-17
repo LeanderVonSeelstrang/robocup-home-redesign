@@ -1,0 +1,29 @@
+---
+import RefLayout from '../layouts/RefLayout.astro';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<RefLayout
+  title="Queue View — RoboCup@Home"
+  fonts="Space+Mono:wght@400;700&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400"
+  cacheControl={true}
+>
+  <link slot="head" rel="stylesheet" href={`${base}/assets/referee-tool/css/queue.css`} />
+
+  <div id="loading">Loading…</div>
+
+  <div id="app" hidden>
+    <header id="queue-header">
+      <div id="queue-title-wrap">
+        <div id="queue-comp-name">—</div>
+        <div id="queue-subtitle">Queue View</div>
+      </div>
+      <div id="queue-arena-filter"></div>
+    </header>
+
+    <div id="queue-body">
+      <div id="queue-content"></div>
+    </div>
+  </div>
+
+  <script is:inline type="module" src={`${base}/assets/referee-tool/js/queue.js`}></script>
+</RefLayout>

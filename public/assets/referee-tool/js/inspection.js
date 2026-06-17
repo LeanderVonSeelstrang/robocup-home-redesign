@@ -53,7 +53,7 @@ async function init() {
         const np = new URLSearchParams(p);
         np.set('team', t.teamId);
         np.set('teamName', t.teamName);
-        return `inspection.html?${np}`;
+        return `${window.__siteBase || ''}/inspection?${np}`;
       };
 
       const navEl = document.getElementById('insp-nav');

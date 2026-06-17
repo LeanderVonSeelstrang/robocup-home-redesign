@@ -1,23 +1,18 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Cache-Control" content="no-store">
-  <title>Live Score Display — RoboCup@Home</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="assets/css/styles.css">
-  <link rel="stylesheet" href="assets/referee-tool/css/display.css">
-</head>
-<body>
+---
+import RefLayout from '../layouts/RefLayout.astro';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<RefLayout
+  title="Live Score Display — RoboCup@Home"
+  fonts="Space+Mono:wght@400;700&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400"
+  cacheControl={true}
+>
+  <link slot="head" rel="stylesheet" href={`${base}/assets/referee-tool/css/display.css`} />
 
-  <!-- Initial auth loading -->
   <div id="screen-loading" class="centered-screen">
     <span>Connecting…</span>
   </div>
 
-  <!-- Step 1: Pick competition -->
   <div id="screen-comp" class="picker-screen" hidden>
     <div class="picker-wrap">
       <div class="picker-heading">Live Display</div>
@@ -26,7 +21,6 @@
     </div>
   </div>
 
-  <!-- Step 2: Pick arena -->
   <div id="screen-arena" class="picker-screen" hidden>
     <div class="picker-wrap">
       <button class="picker-back" id="back-to-comp">← Back</button>
@@ -36,14 +30,12 @@
     </div>
   </div>
 
-  <!-- Waiting for an active run (first load, no data yet) -->
   <div id="screen-waiting" hidden>
     <div id="waiting-arena-badge"></div>
     <div id="waiting-msg">Waiting for an active run…</div>
     <button class="picker-back" id="change-arena-btn">← Change Arena</button>
   </div>
 
-  <!-- Idle rotation (between challenges) -->
   <div id="screen-idle" hidden>
     <header id="idle-header">
       <span id="idle-arena-badge" class="arena-badge"></span>
@@ -55,7 +47,6 @@
     <div id="idle-progress-bar"><div id="idle-progress-fill"></div></div>
   </div>
 
-  <!-- Live display -->
   <div id="screen-live" hidden>
     <div id="run-status-bar" hidden>
       <span id="run-status-text">Run complete — waiting for next run</span>
@@ -94,6 +85,5 @@
     </div>
   </div>
 
-  <script type="module" src="assets/referee-tool/js/display.js"></script>
-</body>
-</html>
+  <script is:inline type="module" src={`${base}/assets/referee-tool/js/display.js`}></script>
+</RefLayout>

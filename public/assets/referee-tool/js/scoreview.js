@@ -11,7 +11,7 @@ const slotId        = p.get('slot');
 const teamId        = p.get('team');
 const teamName      = p.get('teamName') || 'Unknown Team';
 const testId        = p.get('test');
-const backUrl       = p.get('back') || (competitionId ? `competition.html?id=${competitionId}` : 'index.html');
+const backUrl       = p.get('back') || (competitionId ? `${window.__siteBase || ''}/competition?id=${competitionId}` : `${window.__siteBase || ''}/`);
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 

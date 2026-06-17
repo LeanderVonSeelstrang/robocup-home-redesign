@@ -206,7 +206,7 @@ function renderModernInfo() {
   }
 
   // Live watch links (only relevant when active, but set always)
-  document.getElementById('comp-live-link').href = `display.html?competition=${compId}`;
+  document.getElementById('comp-live-link').href = `${base}/display?competition=${compId}`;
   const streamLink = document.getElementById('comp-stream-link');
   if (comp.streamUrl) {
     streamLink.href   = comp.streamUrl;
@@ -313,7 +313,7 @@ function renderLeaderboard() {
     .sort((a, b) => b.total - a.total);
 
   section.hidden = false;
-  document.getElementById('comp-results-link').href = `results.html?id=${compId}`;
+  document.getElementById('comp-results-link').href = `${base}/results?id=${compId}`;
 
   const topScore = ranked[0]?.total || 1;
   el.innerHTML = ranked.map((entry, i) => {
@@ -557,7 +557,7 @@ function openSlotPanel(slot) {
       const status = run?.status || 'pending';
       const score  = run?.totalScore ?? null;
 
-      const scorecardUrl = 'scoreview.html?' + new URLSearchParams({
+      const scorecardUrl = `${base}/scoreview?` + new URLSearchParams({
         competition: compId,
         slot:        slot.id,
         team:        t.teamId,

@@ -1,18 +1,16 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <meta http-equiv="Cache-Control" content="no-store">
-  <title>Score Sheet — RoboCup@Home</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="assets/css/styles.css">
-  <link rel="stylesheet" href="assets/referee-tool/css/shared.css">
-  <link rel="stylesheet" href="assets/referee-tool/css/scoresheet.css">
-</head>
-<body>
-  <!-- Referee login overlay — shown if not signed in with email -->
+---
+import RefLayout from '../layouts/RefLayout.astro';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<RefLayout
+  title="Score Sheet — RoboCup@Home"
+  fonts="Space+Mono:wght@400;700&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400"
+  cacheControl={true}
+>
+  <link slot="head" rel="stylesheet" href={`${base}/assets/referee-tool/css/shared.css`} />
+  <link slot="head" rel="stylesheet" href={`${base}/assets/referee-tool/css/scoresheet.css`} />
+
+  <!-- Referee login overlay -->
   <div id="referee-login-overlay" class="ref-login-overlay" hidden>
     <div class="ref-login-card">
       <div class="ref-login-title">Referee Sign In</div>
@@ -95,6 +93,5 @@
     </div>
   </div>
 
-  <script type="module" src="assets/referee-tool/js/scoresheet.js"></script>
-</body>
-</html>
+  <script is:inline type="module" src={`${base}/assets/referee-tool/js/scoresheet.js`}></script>
+</RefLayout>

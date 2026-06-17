@@ -92,7 +92,7 @@ async function init() {
 
   // Back link
   const backLink = document.getElementById('back-link');
-  if (backLink) backLink.href = `dashboard.html?competition=${competitionId}`;
+  if (backLink) backLink.href = `${window.__siteBase || ''}/dashboard?competition=${competitionId}`;
 
   // Prev / Next team links — load slot to find team order
   const slotSnap = await getDoc(doc(db, 'competitions', competitionId, 'slots', slotId));
@@ -101,7 +101,7 @@ async function init() {
     const idx   = teams.findIndex(t => t.teamId === teamId);
 
     function teamLink(team) {
-      return 'scoresheet.html?' + new URLSearchParams({
+      return (window.__siteBase || '') + '/scoresheet?' + new URLSearchParams({
         competition: competitionId, slot: slotId,
         team: team.teamId, teamName: team.teamName, test: testId
       });

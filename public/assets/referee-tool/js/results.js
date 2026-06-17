@@ -27,7 +27,7 @@ async function init() {
 
   document.title = `Results — ${comp.name}`;
   document.getElementById('results-comp-title').textContent = comp.name;
-  document.getElementById('results-back-link').href = `competition.html?id=${compId}`;
+  document.getElementById('results-back-link').href = `${window.__siteBase || ''}/competition?id=${compId}`;
 
   const testsSnap = await getDocs(collection(db, 'competitions', compId, 'tests'));
   tests = testsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -102,7 +102,7 @@ function renderOverall(submitted) {
             <tr class="${i === 0 ? 'row-first' : ''}">
               <td class="col-rank">${medal}</td>
               <td class="col-team">
-                <a href="team.html?id=${encodeURIComponent(entry.teamId)}" class="results-team-link">${entry.teamName}</a>
+                <a href="${window.__siteBase || ''}/team?id=${encodeURIComponent(entry.teamId)}" class="results-team-link">${entry.teamName}</a>
               </td>
               ${testNames.map(n => {
                 const tid = tests.find(t => t.name === n)?.id;
@@ -110,7 +110,7 @@ function renderOverall(submitted) {
                 const score = entry.byTest[n];
                 if (score === undefined) return `<td class="col-test">—</td>`;
                 if (!run) return `<td class="col-test">${score}</td>`;
-                const url = 'scoreview.html?' + new URLSearchParams({ competition: compId, slot: run.slotId, team: run.teamId, teamName: run.teamName, test: run.testId, back: `results.html?id=${compId}` });
+                const url = (window.__siteBase || '') + '/scoreview?' + new URLSearchParams({ competition: compId, slot: run.slotId, team: run.teamId, teamName: run.teamName, test: run.testId, back: `${window.__siteBase || ''}/results?id=${compId}` });
                 return `<td class="col-test"><a href="${url}" target="_blank" rel="noopener" class="results-score-link">${score}</a></td>`;
               }).join('')}
               <td class="col-total">${entry.total}</td>
@@ -154,15 +154,15 @@ function renderPerTest(submitted) {
 
     const rows = testRuns.map((run, i) => {
       const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1;
-      const scoreUrl = 'scoreview.html?' + new URLSearchParams({
+      const scoreUrl = (window.__siteBase || '') + '/scoreview?' + new URLSearchParams({
         competition: compId, slot: run.slotId, team: run.teamId,
-        teamName: run.teamName, test: run.testId, back: `results.html?id=${compId}`
+        teamName: run.teamName, test: run.testId, back: `${window.__siteBase || ''}/results?id=${compId}`
       });
       return `
         <tr class="${i === 0 ? 'row-first' : ''}">
           <td class="col-rank">${medal}</td>
           <td class="col-team">
-            <a href="team.html?id=${encodeURIComponent(run.teamId)}" class="results-team-link">${run.teamName || run.teamId}</a>
+            <a href="${window.__siteBase || ''}/team?id=${encodeURIComponent(run.teamId)}" class="results-team-link">${run.teamName || run.teamId}</a>
           </td>
           <td class="col-score"><a href="${scoreUrl}" target="_blank" rel="noopener" class="results-score-link">${run.totalScore ?? 0}</a></td>
         </tr>
