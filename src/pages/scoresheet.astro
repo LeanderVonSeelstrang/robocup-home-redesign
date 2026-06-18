@@ -93,6 +93,16 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
         </div>
       </div>
     </div>
+
+    <div id="unlock-confirm" class="unlock-confirm" hidden>
+      <div class="unlock-confirm-box">
+        <p>Are you sure you want to unlock the score sheet and allow further edits?</p>
+        <div class="unlock-confirm-actions">
+          <button id="unlock-confirm-ok" class="btn-unlock-ok">Unlock</button>
+          <button id="unlock-confirm-cancel" class="btn-unlock-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script is:inline type="module" src={`${base}/assets/referee-tool/js/scoresheet.js`}></script>

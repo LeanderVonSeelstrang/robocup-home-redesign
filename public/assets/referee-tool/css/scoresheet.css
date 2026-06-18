@@ -599,6 +599,111 @@ body {
 #submit-btn:active { filter: brightness(0.9); }
 #submit-btn:disabled { background: var(--muted); color: var(--bg); cursor: default; }
 
+#submit-btn.submitted-btn {
+  background: rgba(255,255,255,0.1);
+  color: var(--text);
+  cursor: default;
+  border: 1px solid rgba(255,255,255,0.15);
+}
+
+#submit-btn.unlock-btn {
+  background: rgba(255,200,0,0.15);
+  color: #ffc107;
+  border: 1px solid rgba(255,200,0,0.3);
+  cursor: pointer;
+}
+
+#submit-btn.unlock-btn:hover {
+  background: rgba(255,200,0,0.25);
+  border-color: rgba(255,200,0,0.5);
+}
+
+/* ── SUBMITTED STATE ─────────────────────────────────────────────── */
+
+#app.submitted-state {
+  --accent-muted: rgba(255,255,255,0.4);
+}
+
+#app.submitted-state .boolean-toggle {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+#app.submitted-state .count-btn {
+  cursor: not-allowed;
+}
+
+#app.submitted-state #sheet-header {
+  border-bottom-color: rgba(255,255,255,0.15);
+}
+
+#app.submitted-state .score-section {
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+#app.submitted-state #notes {
+  background: rgba(255,255,255,0.02);
+  opacity: 0.7;
+}
+
+/* ── UNLOCK CONFIRM OVERLAY ──────────────────────────────────────── */
+
+.unlock-confirm {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+
+.unlock-confirm-box {
+  background: var(--surface);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: var(--radius);
+  padding: 28px 24px 20px;
+  max-width: 340px;
+  width: 90%;
+  text-align: center;
+}
+
+.unlock-confirm-box p {
+  margin: 0 0 20px;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.unlock-confirm-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.btn-unlock-ok {
+  padding: 10px 24px;
+  background: #ffc107;
+  color: #000;
+  border: none;
+  border-radius: var(--radius);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-unlock-cancel {
+  padding: 10px 24px;
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
 /* ── LOADING / ERROR ─────────────────────────────────────────────── */
 
 #loading {

@@ -27,6 +27,8 @@ let currentReferee = null;
 let isOnline = navigator.onLine;
 let hasPendingSave = false;
 let saveFailed = false;
+let isSubmitted = false;
+let unlockTimeout = null;
 
 let testDef   = null;
 let scores    = {};   // live score state
@@ -146,9 +148,27 @@ async function init() {
     updateTotal();
     timerHandles.forEach(h => h.reset());
     draftMarked = false;
+    isSubmitted = false;
+    allowEdits(); // Ensure all controls are re-enabled
     try { await deleteDoc(runRef); } catch (e) { /* non-critical */ }
     setSaveStatus('Reset.');
     setTimeout(() => setSaveStatus(''), 2000);
+    // Reset submit button to normal state
+    const submitBtn = document.getElementById('submit-btn');
+    submitBtn.textContent = 'Submit Score Sheet';
+    submitBtn.disabled = false;
+    submitBtn.classList.remove('submitted-btn', 'unlock-btn');
+    submitBtn.onclick = submitRun;
+    if (unlockTimeout) clearTimeout(unlockTimeout);
+  });
+
+  // Unlock dialog handlers
+  document.getElementById('unlock-confirm-cancel').addEventListener('click', () => {
+    document.getElementById('unlock-confirm').hidden = true;
+  });
+  document.getElementById('unlock-confirm-ok').addEventListener('click', () => {
+    document.getElementById('unlock-confirm').hidden = true;
+    unlockForm();
   });
 
   // Back link
@@ -221,8 +241,61 @@ async function init() {
   // our own write (`lastWriter === clientId`) and apply everything else —
   // i.e. a genuine change made from another tab/device — immediately.
   unsubscribeRunListener = onSnapshot(runRef, (remoteSnap) => {
-    if (!remoteSnap.exists()) return;
+    // Handle document deletion (reset from another tab)
+    if (!remoteSnap.exists()) {
+      scores = {};
+      feed = [];
+      restartTaken = false;
+      isSubmitted = false;
+      allowEdits();
+      document.getElementById('notes').value = '';
+      refreshAll();
+      updateTotal();
+      timerHandles.forEach(h => h.reset());
+      
+      const btn = document.getElementById('submit-btn');
+      btn.textContent = 'Submit Score Sheet';
+      btn.disabled = false;
+      btn.classList.remove('submitted-btn', 'unlock-btn');
+      btn.onclick = submitRun;
+      if (unlockTimeout) clearTimeout(unlockTimeout);
+      
+      setSaveStatus('Score sheet reset.');
+      setTimeout(() => setSaveStatus(''), 2000);
+      return;
+    }
+    
     const data = remoteSnap.data();
+    
+    // Check submission status from Firestore (important for multi-tab scenarios)
+    // Handle external submission (another tab submitted)
+    if (data.status === 'submitted' && !isSubmitted) {
+      isSubmitted = true;
+      disallowEdits();
+      const btn = document.getElementById('submit-btn');
+      btn.textContent = 'Submitted ✓';
+      btn.classList.add('submitted-btn');
+      setSaveStatus('Score sheet submitted.');
+      
+      // Show unlock button after 5 seconds
+      if (unlockTimeout) clearTimeout(unlockTimeout);
+      unlockTimeout = setTimeout(() => {
+        btn.textContent = '🔓 Unlock';
+        btn.disabled = false;
+        btn.classList.remove('submitted-btn');
+        btn.classList.add('unlock-btn');
+        btn.onclick = () => {
+          document.getElementById('unlock-confirm').hidden = false;
+        };
+      }, 5000);
+    } 
+    // Handle external unlock (another tab unlocked or reset)
+    else if (data.status !== 'submitted' && isSubmitted) {
+      // Call unlockForm to handle all button and state updates consistently
+      isSubmitted = false;
+      unlockFormWithoutPersist();
+    }
+    
     if (data.lastWriter === clientId) return;
 
     if (data.scores) {
@@ -248,8 +321,8 @@ async function init() {
   });
 
   window.addEventListener('beforeunload', (e) => {
-    // Warn user if there are unsaved changes (debounce window active)
-    if (hasPendingSave && saveTimer !== null) {
+    // Warn user if there are unsaved changes (debounce window active) — but not if submitted
+    if (!isSubmitted && hasPendingSave && saveTimer !== null) {
       e.preventDefault();
       e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
       return e.returnValue;
@@ -837,12 +910,117 @@ async function submitRun() {
   }
 }
 
+function disallowEdits() {
+  // Stop all running timers by clicking their start buttons (toggles pause)
+  const timerBtns = document.querySelectorAll('.timer-ctrl-btn[title="Start / Pause"]');
+  timerBtns.forEach(btn => {
+    // Only click if timer is currently running (button shows pause symbol ⏸)
+    if (btn.textContent === '\u23F8\uFE0E') btn.click();
+  });
+  
+  // Disable all timer control buttons
+  const allTimerBtns = document.querySelectorAll('.timer-ctrl-btn');
+  allTimerBtns.forEach(btn => btn.disabled = true);
+  
+  // Disable all score buttons (boolean, count, penalties, etc.)
+  const scoreButtons = document.querySelectorAll('.boolean-toggle, .count-btn, .penalty-check, .pct-input');
+  scoreButtons.forEach(btn => {
+    btn.disabled = true;
+    btn.style.pointerEvents = 'none';
+    btn.style.opacity = '0.6';
+  });
+  
+  // Disable reset button
+  const resetBtn = document.getElementById('reset-btn');
+  if (resetBtn) resetBtn.disabled = true;
+  
+  // Disable notes textarea
+  const notesTA = document.getElementById('notes');
+  if (notesTA) notesTA.disabled = true;
+  
+  // Mark as submitted for visual state
+  const app = document.getElementById('app');
+  if (app) app.classList.add('submitted-state');
+}
+
+function allowEdits() {
+  // Enable all timer control buttons
+  const timerBtns = document.querySelectorAll('.timer-ctrl-btn');
+  timerBtns.forEach(btn => btn.disabled = false);
+  
+  // Enable all score buttons
+  const scoreButtons = document.querySelectorAll('.boolean-toggle, .count-btn, .penalty-check, .pct-input');
+  scoreButtons.forEach(btn => {
+    btn.disabled = false;
+    btn.style.pointerEvents = 'auto';
+    btn.style.opacity = '1';
+  });
+  
+  // Enable reset button
+  const resetBtn = document.getElementById('reset-btn');
+  if (resetBtn) resetBtn.disabled = false;
+  
+  // Enable notes textarea
+  const notesTA = document.getElementById('notes');
+  if (notesTA) notesTA.disabled = false;
+  
+  // Remove submitted visual state
+  const app = document.getElementById('app');
+  if (app) app.classList.remove('submitted-state');
+}
+
 function lockForm() {
+  isSubmitted = true;
+  disallowEdits();
+  
   const btn = document.getElementById('submit-btn');
-  btn.disabled = true;
   btn.textContent = 'Submitted ✓';
-  document.getElementById('notes').disabled = true;
+  btn.classList.add('submitted-btn');
+  
   setSaveStatus('Score sheet submitted.');
+  
+  // Show unlock button after 5 seconds
+  if (unlockTimeout) clearTimeout(unlockTimeout);
+  unlockTimeout = setTimeout(() => {
+    btn.textContent = '🔓 Unlock';
+    btn.disabled = false;
+    btn.classList.remove('submitted-btn');
+    btn.classList.add('unlock-btn');
+    btn.onclick = () => {
+      document.getElementById('unlock-confirm').hidden = false;
+    };
+  }, 5000);
+}
+
+function unlockFormWithoutPersist() {
+  // Updates UI state without persisting to Firestore
+  // Used both by user-initiated unlocks and listener-detected unlocks
+  allowEdits();
+  
+  const btn = document.getElementById('submit-btn');
+  btn.textContent = 'Submit Score Sheet';
+  btn.classList.remove('submitted-btn', 'unlock-btn');
+  btn.onclick = submitRun;
+  btn.disabled = false;
+  
+  setSaveStatus('Score sheet unlocked.');
+  setTimeout(() => setSaveStatus(''), 2000);
+  
+  // Clear any pending unlock button timeout
+  if (unlockTimeout) clearTimeout(unlockTimeout);
+}
+
+function unlockForm() {
+  // User-initiated unlock: update UI and persist to Firestore
+  isSubmitted = false;
+  unlockFormWithoutPersist();
+  
+  // Persist unlock to Firestore so other tabs see it
+  try {
+    setDoc(runRef, { status: 'draft', lastWriter: clientId, updatedAt: serverTimestamp() }, { merge: true });
+  } catch (err) {
+    console.error('Failed to persist unlock:', err);
+  }
 }
 
 function setSaveStatus(msg) {
