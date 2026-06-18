@@ -420,12 +420,27 @@ function renderDashLeaderboard() {
 
   panel.hidden = false;
   list.innerHTML = ranked.map((entry, i) => `
-    <div class="dash-lb-row">
+    <div class="dash-lb-row" data-team-id="${entry.id}" data-team-name="${entry.teamName}" style="cursor: pointer;">
       <span class="dash-lb-rank">${i + 1}</span>
       <span class="dash-lb-name">${entry.teamName}</span>
       <span class="dash-lb-score">${entry.total} pts</span>
+      <span class="dash-lb-view-scores" title="View score breakdown">📊</span>
     </div>
   `).join('');
+
+  // Add click handlers to view score history
+  for (const row of list.querySelectorAll('.dash-lb-row')) {
+    row.addEventListener('click', () => {
+      const teamId = row.dataset.teamId;
+      const teamName = row.dataset.teamName;
+      const url = `${window.__siteBase || ''}/scoresheet-history?` + new URLSearchParams({
+        competition: competitionId,
+        team: teamId,
+        teamName: teamName
+      });
+      window.location.href = url;
+    });
+  }
 }
 
 // Toggle open/closed

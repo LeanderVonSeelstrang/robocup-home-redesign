@@ -1,6 +1,6 @@
-import { db, ensureRefereeAuth } from './firebase.js';
+import { db, ensureRefereeAuth, auth } from './firebase.js';
 import {
-  doc, getDoc, setDoc, deleteDoc, serverTimestamp
+  doc, getDoc, setDoc, deleteDoc, onSnapshot, serverTimestamp, arrayUnion, collection, query
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
 
 // ── URL params ────────────────────────────────────────────────────────────────
@@ -15,6 +15,20 @@ const runId         = `${slotId}_${teamId}`;
 
 const runRef = doc(db, 'competitions', competitionId, 'runs', runId);
 
+// One id per page load. Every write we send tags itself with this id, so the
+// live listener can tell "this snapshot is just my own write echoing back"
+// apart from "this is a genuine change from another tab/device" — without
+// any time-based guessing, and without ever suppressing a real collaborator's
+// update.
+const clientId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
+
+// Track authenticated referee for presence and audit logging
+let currentReferee = null;
+let presenceId = null;  // unique presence indicator for this session
+let isOnline = navigator.onLine;
+let hasPendingSave = false;
+let saveFailed = false;
+
 let testDef   = null;
 let scores    = {};   // live score state
 let feed      = [];   // [{label, delta, t, elapsed}] newest-first, written to Firestore for live display
@@ -23,8 +37,12 @@ let saveTimer = null;
 // Tracks elapsed seconds on the main timer so feed entries can record a timestamp
 let getMainTimerElapsed = () => null;
 
-// Timer handles — stored so the reset button can reset all timers
-let timerHandles = [];
+// Named timer handles (not a positional array) so the live listener can
+// target the right one directly, regardless of whether this test has a main
+// time limit at all.
+let mainTimerHandle     = null;
+let restartTimerHandles = [];
+let timerHandles        = []; // flat list, used by the reset button only
 
 // Whether the run has been marked as draft — reset so the next timer start re-triggers it
 let draftMarked = false;
@@ -32,10 +50,170 @@ let draftMarked = false;
 // Restart timer state synced to Firestore for live display
 let restartTaken = false;
 
+let unsubscribeRunListener = null;
+let unsubscribePresenceListener = null;
+let presenceTimerHandle = null;
+
+// ── PRESENCE & CONNECTION STATUS ──────────────────────────────────────────────
+
+function updateConnectionStatus() {
+  const statusEl = document.getElementById('connection-status');
+  if (!statusEl) return;
+  
+  if (!isOnline) {
+    statusEl.innerHTML = '⚠ Offline – changes will sync when reconnected';
+    statusEl.style.display = 'block';
+    statusEl.classList.add('offline');
+  } else if (saveFailed) {
+    statusEl.innerHTML = '⚠ Save failed <button id="retry-save-btn" class="retry-btn">Retry</button>';
+    statusEl.style.display = 'block';
+    statusEl.classList.add('error');
+    document.getElementById('retry-save-btn').addEventListener('click', () => attemptSave('draft'));
+  } else {
+    statusEl.style.display = 'none';
+  }
+}
+
+async function registerPresence() {
+  if (!presenceId || !currentReferee) return;
+  
+  try {
+    const presenceRef = doc(db, 'competitions', competitionId, 'runs', runId, 'presence', presenceId);
+    console.log(`📍 Registering presence:`, {
+      presenceId,
+      refereeEmail: currentReferee.email,
+      runId,
+      competitionId
+    });
+    await setDoc(presenceRef, {
+      refereeEmail: currentReferee.email,
+      refereeUid: currentReferee.uid,
+      clientId,
+      sessionStart: serverTimestamp(),
+      lastHeartbeat: serverTimestamp()
+    });
+    console.log(`✓ Presence registered: ${presenceId}`);
+  } catch (e) { 
+    console.error('Failed to register presence:', e.code, e.message);
+    if (e.code === 'permission-denied') {
+      console.error('⚠️  Presence tracking unavailable - check Firestore rules');
+    }
+  }
+}
+
+async function updatePresenceHeartbeat() {
+  if (!presenceId || !currentReferee) return;
+  
+  try {
+    const presenceRef = doc(db, 'competitions', competitionId, 'runs', runId, 'presence', presenceId);
+    console.log(`💓 Heartbeat: ${presenceId} on runId=${runId}`);
+    await setDoc(presenceRef, { lastHeartbeat: serverTimestamp() }, { merge: true });
+  } catch (e) { 
+    console.error(`❌ Heartbeat failed for ${presenceId}:`, e.code, e.message);
+    // Don't keep retrying if it's a permission issue
+    if (e.code === 'permission-denied') {
+      console.error('Presence updates disabled due to permission restrictions');
+      clearInterval(presenceTimerHandle);
+      presenceTimerHandle = null;
+    }
+  }
+}
+
+async function removePresence() {
+  if (!presenceId) return;
+  
+  try {
+    const presenceRef = doc(db, 'competitions', competitionId, 'runs', runId, 'presence', presenceId);
+    await deleteDoc(presenceRef);
+    console.log(`✓ Presence removed: ${presenceId}`);
+  } catch (e) { 
+    console.error('Failed to remove presence:', e);
+  }
+}
+
+// Listen to presence subcollection to detect conflicts
+async function setupPresenceListener() {
+  try {
+    const presenceQuery = query(
+      collection(db, 'competitions', competitionId, 'runs', runId, 'presence')
+    );
+    console.log(`🔍 Setting up presence listener for ${runId}`);
+    
+    const unsubscribe = onSnapshot(presenceQuery, (snapshot) => {
+      console.log(`📡 Presence update: ${snapshot.docs.length} sessions`);
+      
+      // Find other active sessions (not this one, with heartbeat < 15s old)
+      const now = Date.now();
+      const activeSessions = [];
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        console.log(`  - Session: ${doc.id.slice(0,8)}... (${data.refereeEmail})`);
+        
+        if (doc.id !== presenceId) {
+          // Handle both Timestamp and number types
+          let lastHBMs = 0;
+          if (data.lastHeartbeat) {
+            if (typeof data.lastHeartbeat.toMillis === 'function') {
+              lastHBMs = data.lastHeartbeat.toMillis();
+            } else if (typeof data.lastHeartbeat === 'number') {
+              lastHBMs = data.lastHeartbeat;
+            }
+          }
+          const age = Math.round((now - lastHBMs) / 1000);
+          console.log(`    → Age: ${age}s`);
+          
+          // Session is active if heartbeat is within last 15 seconds
+          if (now - lastHBMs < 15000) {
+            activeSessions.push({ email: data.refereeEmail, time: lastHBMs });
+            console.log(`    → ACTIVE OTHER SESSION!`);
+          }
+        }
+      });
+      
+      const conflictEl = document.getElementById('presence-conflict');
+      if (!conflictEl) return;
+      
+      if (activeSessions.length > 0) {
+        const others = activeSessions.map(s => s.email).join(', ');
+        conflictEl.innerHTML = `⚠ <strong>This sheet is being edited by another referee</strong> (${others}). Last-write-wins, so coordinate edits.`;
+        conflictEl.style.display = 'block';
+        console.log(`⚠️  CONFLICT DETECTED: ${others}`);
+      } else {
+        conflictEl.style.display = 'none';
+      }
+    }, (err) => {
+      console.error('Presence listener error:', err.code, err.message);
+    });
+    
+    console.log(`✓ Presence listener active`);
+    return unsubscribe;
+  } catch (e) {
+    console.error('Failed to setup presence listener:', e.code, e.message);
+    return null;
+  }
+}
+
 // ── INIT ──────────────────────────────────────────────────────────────────────
 
 async function init() {
-  await ensureRefereeAuth();
+  // Get authenticated referee
+  const user = await ensureRefereeAuth();
+  currentReferee = { email: user.email, uid: user.uid };
+  presenceId = `${user.uid}_${clientId}`;
+
+  // Set up online/offline detection
+  window.addEventListener('online', () => {
+    isOnline = true;
+    updateConnectionStatus();
+    if (saveFailed) {
+      // Try automatic retry on reconnect
+      setTimeout(() => attemptSave('draft'), 500);
+    }
+  });
+  window.addEventListener('offline', () => {
+    isOnline = false;
+    updateConnectionStatus();
+  });
 
   // Load test definition — competition-specific first, then static fallback
   const testDocSnap = await getDoc(doc(db, 'competitions', competitionId, 'tests', testId));
@@ -48,14 +226,29 @@ async function init() {
     });
   }
 
-  // Load existing run state if already started
+  // Register this session's presence
+  await registerPresence();
+  
+  // Set up presence listener to detect conflicts
+  unsubscribePresenceListener = await setupPresenceListener();
+  
+  // Heartbeat to keep presence fresh (every 3 seconds)
+  presenceTimerHandle = setInterval(updatePresenceHeartbeat, 3000);
+
+  // Load existing run state if already started. This single read is what
+  // makes "accidentally hit back / closed the tab, then reopened" resume
+  // correctly — including the timers — with no live listener required.
   const snap = await getDoc(runRef);
-  let alreadySubmitted = false;
+  let alreadySubmitted  = false;
+  let savedTimerState   = null;
+  let savedRestartState = null;
   if (snap.exists()) {
     const data = snap.data();
-    scores       = data.scores       || {};
-    feed         = data.feed         || [];
-    restartTaken = data.restartTaken || false;
+    scores            = data.scores       || {};
+    feed              = data.feed         || [];
+    restartTaken      = data.restartTaken || false;
+    savedTimerState   = data.timerState   || null;
+    savedRestartState = data.restartState || null;
     document.getElementById('notes').value = data.notes || '';
     if (data.status === 'submitted') { lockForm(); alreadySubmitted = true; }
   }
@@ -115,48 +308,92 @@ async function init() {
       const nextLink = document.getElementById('next-team-link');
       if (nextLink) { nextLink.href = teamLink(teams[idx + 1]); nextLink.hidden = false; }
     }
-
   }
 
   // Timers — main timer also syncs state to Firestore for live display
   // and marks the run as draft (activates dashboard dot) on first start.
   draftMarked = alreadySubmitted;
+
+  const restartSync = async state => {
+    if (state.startedAt !== null || state.elapsedBeforePause > 0) restartTaken = true;
+    try {
+      await setDoc(runRef, { restartState: state, restartTaken, lastWriter: clientId }, { merge: true });
+    } catch (_) { /* non-critical */ }
+  };
+
   if (testDef.timeLimit) {
-    const mainHandle = makeTimer(testDef.timeLimit * 60,
+    mainTimerHandle = makeTimer(testDef.timeLimit * 60,
       document.getElementById('timer'),
       document.getElementById('timer-start-btn'),
       document.getElementById('timer-reset-btn'),
       60,
       async state => {
         try {
-          await setDoc(runRef, { timerState: state }, { merge: true });
+          await setDoc(runRef, { timerState: state, lastWriter: clientId }, { merge: true });
           if (!draftMarked && state.startedAt !== null) {
             draftMarked = true;
             await saveRun('draft');
           }
         } catch (e) { /* non-critical */ }
-      }
+      },
+      savedTimerState
     );
-    getMainTimerElapsed = mainHandle.getElapsed;
-    const restartSync = async state => {
-      if (state.startedAt !== null || state.elapsedBeforePause > 0) restartTaken = true;
-      try { await setDoc(runRef, { restartState: state, restartTaken }, { merge: true }); } catch (_) {}
-    };
-    timerHandles = [
-      mainHandle,
-      makeTimer(30,  document.getElementById('timer-30s'),  document.getElementById('t30-start'), document.getElementById('t30-reset'),  5, restartSync),
-      makeTimer(60,  document.getElementById('timer-1min'), document.getElementById('t1m-start'), document.getElementById('t1m-reset'), 10, restartSync),
-    ];
-  } else {
-    const restartSync = async state => {
-      if (state.startedAt !== null || state.elapsedBeforePause > 0) restartTaken = true;
-      try { await setDoc(runRef, { restartState: state, restartTaken }, { merge: true }); } catch (_) {}
-    };
-    timerHandles = [
-      makeTimer(30,  document.getElementById('timer-30s'),  document.getElementById('t30-start'), document.getElementById('t30-reset'),  5, restartSync),
-      makeTimer(60,  document.getElementById('timer-1min'), document.getElementById('t1m-start'), document.getElementById('t1m-reset'), 10, restartSync),
-    ];
+    getMainTimerElapsed = mainTimerHandle.getElapsed;
   }
+
+  restartTimerHandles = [
+    makeTimer(30, document.getElementById('timer-30s'),  document.getElementById('t30-start'), document.getElementById('t30-reset'),  5, restartSync, savedRestartState),
+    makeTimer(60, document.getElementById('timer-1min'), document.getElementById('t1m-start'), document.getElementById('t1m-reset'), 10, restartSync, savedRestartState),
+  ];
+
+  timerHandles = mainTimerHandle ? [mainTimerHandle, ...restartTimerHandles] : restartTimerHandles;
+
+  // Live sync — a single listener, set up after the timer handles exist so it
+  // can call into them directly. We skip any snapshot that's just the echo of
+  // our own write (`lastWriter === clientId`) and apply everything else —
+  // i.e. a genuine change made from another tab/device — immediately.
+  unsubscribeRunListener = onSnapshot(runRef, (remoteSnap) => {
+    if (!remoteSnap.exists()) return;
+    const data = remoteSnap.data();
+    if (data.lastWriter === clientId) return;
+
+    if (data.scores) {
+      scores = data.scores;
+      refreshAll();
+      updateTotal();
+    }
+    
+    // Handle both old 'feed' format and new 'feedEntries' format
+    if (data.feedEntries) {
+      feed = (data.feedEntries || []).sort((a, b) => (b.t || 0) - (a.t || 0)).slice(0, 30);
+    } else if (data.feed) {
+      feed = data.feed;
+    }
+    
+    if (data.restartTaken !== undefined) restartTaken = data.restartTaken;
+
+    const notesEl = document.getElementById('notes');
+    if (data.notes !== undefined && notesEl.value !== data.notes) notesEl.value = data.notes;
+
+    if (data.timerState && mainTimerHandle) mainTimerHandle.restoreState(data.timerState);
+    if (data.restartState) restartTimerHandles.forEach(h => h.restoreState(data.restartState));
+  });
+
+  window.addEventListener('beforeunload', (e) => {
+    // Warn user if there are unsaved changes (debounce window active)
+    if (hasPendingSave && saveTimer !== null) {
+      e.preventDefault();
+      e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+      return e.returnValue;
+    }
+  });
+
+  window.addEventListener('unload', () => {
+    if (unsubscribeRunListener) unsubscribeRunListener();
+    if (unsubscribePresenceListener) unsubscribePresenceListener();
+    if (presenceTimerHandle) clearInterval(presenceTimerHandle);
+    removePresence();
+  });
 
   document.getElementById('loading').hidden = true;
   document.getElementById('app').hidden = false;
@@ -572,7 +809,7 @@ function renderInfo(item) {
   return el;
 }
 
-// ── REFRESH ALL (on initial load from Firestore) ──────────────────────────────
+// ── REFRESH ALL (on initial load / remote update from Firestore) ─────────────
 
 function refreshAll() {
   for (const section of testDef.sections) {
@@ -640,6 +877,8 @@ function updateTotal() {
 // ── FIRESTORE ─────────────────────────────────────────────────────────────────
 
 function scheduleSave(feedEvent) {
+  hasPendingSave = true;
+  
   if (feedEvent && feedEvent.delta !== 0) {
     // Cancel-out: if the most recent feed entry has the same label and the exact
     // opposite delta, the user is simply undoing their last action — remove it
@@ -658,25 +897,56 @@ function scheduleSave(feedEvent) {
   setSaveStatus('Saving…');
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
-    await saveRun('draft');
+    await attemptSave('draft');
     saveTimer = null;
   }, 1200);
 }
 
+async function attemptSave(status) {
+  try {
+    await saveRun(status);
+  } catch (err) {
+    saveFailed = true;
+    updateConnectionStatus();
+  }
+}
+
 async function saveRun(status) {
   try {
-    await setDoc(runRef, {
+    const updateData = {
       competitionId, slotId, teamId, teamName, testId,
       testName: testDef.name,
       scores,
-      feed,
       restartTaken,
       notes:      document.getElementById('notes').value,
       totalScore: calculateTotal(),
       status,
+      lastWriter: clientId,
+      lastWriterEmail: currentReferee?.email || 'unknown',
       updatedAt:  serverTimestamp(),
-      ...(status === 'draft' ? {} : { submittedAt: serverTimestamp() })
-    }, { merge: true });
+    };
+    
+    if (status === 'submitted') {
+      updateData.submittedAt = serverTimestamp();
+      updateData.submittedBy = currentReferee?.email || 'unknown';
+    }
+    
+    // Append feed entries via arrayUnion for merge-friendly writes
+    // Each feed entry gets a unique timestamp ID to avoid duplicates
+    if (feed.length > 0) {
+      updateData.feedEntries = arrayUnion(...feed.map(entry => ({
+        ...entry,
+        id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+        writer: currentReferee?.email || 'unknown'
+      })));
+    }
+    
+    await setDoc(runRef, updateData, { merge: true });
+    
+    hasPendingSave = false;
+    saveFailed = false;
+    updateConnectionStatus();
+    
     if (status === 'draft') {
       setSaveStatus('Saved');
       setTimeout(() => setSaveStatus(''), 2000);
@@ -684,6 +954,7 @@ async function saveRun(status) {
   } catch (err) {
     setSaveStatus('Save failed — check connection');
     console.error('Save error:', err);
+    saveFailed = true;
     throw err;
   }
 }
@@ -730,8 +1001,10 @@ function playBeep(freq, duration) {
   } catch (_) {}
 }
 
-function makeTimer(initialSecs, displayEl, startBtn, resetBtn, warningAt, syncFn) {
-  if (!displayEl || !startBtn || !resetBtn) return { getElapsed: () => null };
+function makeTimer(initialSecs, displayEl, startBtn, resetBtn, warningAt, syncFn, savedState) {
+  if (!displayEl || !startBtn || !resetBtn) {
+    return { getElapsed: () => null, reset: () => {}, restoreState: () => {} };
+  }
   let remaining          = initialSecs;
   let interval           = null;
   let elapsedBeforePause = 0;   // seconds accumulated in previous runs
@@ -741,19 +1014,62 @@ function makeTimer(initialSecs, displayEl, startBtn, resetBtn, warningAt, syncFn
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   }
 
-  // Returns total elapsed seconds so far (null if timer never started)
-  function getElapsed() {
-    if (elapsedBeforePause === 0 && startedAtMs === null) return null;
-    const live = startedAtMs ? Math.round((Date.now() - startedAtMs) / 1000) : 0;
-    return Math.min(initialSecs, elapsedBeforePause + live);
-  }
-
   function render() {
     displayEl.textContent = fmt(remaining);
     displayEl.classList.toggle('warning', interval !== null && remaining > 0 && remaining <= warningAt);
     displayEl.classList.toggle('expired', remaining === 0);
     startBtn.textContent = interval !== null ? '\u23F8\uFE0E' : '▶';
     startBtn.disabled    = remaining === 0;
+  }
+
+  function tick() {
+    if (--remaining <= 0) {
+      remaining = 0;
+      elapsedBeforePause = initialSecs;
+      startedAtMs = null;
+      clearInterval(interval);
+      interval = null;
+      playBeep(440, 0.6);   // long low beep at 0
+    } else if (remaining <= 3) {
+      playBeep(880, 0.12);  // short high beep at 3, 2, 1
+    }
+    render();
+  }
+
+  // Shared by initial restore (savedState) and live restore (restoreState):
+  // given a startedAt timestamp + prior elapsed seconds, recompute remaining
+  // and resume the interval if there's time left. Always uses this timer's
+  // own `initialSecs`, never a value from the incoming state object — that
+  // matters because the 30s and 60s timers share one synced `restartState`
+  // payload despite having different durations.
+  function resumeFrom(startedAt, elapsedBefore) {
+    elapsedBeforePause = elapsedBefore;
+    const elapsedSecs = Math.round((Date.now() - startedAt) / 1000);
+    remaining = Math.max(0, initialSecs - elapsedBeforePause - elapsedSecs);
+
+    if (remaining > 0) {
+      startedAtMs = Date.now();
+      interval = setInterval(tick, 1000);
+    } else {
+      startedAtMs = null;
+      elapsedBeforePause = initialSecs;
+    }
+  }
+
+  if (savedState) {
+    if (savedState.startedAt !== null) {
+      resumeFrom(savedState.startedAt, savedState.elapsedBeforePause || 0);
+    } else {
+      elapsedBeforePause = savedState.elapsedBeforePause || 0;
+      remaining = initialSecs - elapsedBeforePause;
+    }
+  }
+
+  // Returns total elapsed seconds so far (null if timer never started)
+  function getElapsed() {
+    if (elapsedBeforePause === 0 && startedAtMs === null) return null;
+    const live = startedAtMs ? Math.round((Date.now() - startedAtMs) / 1000) : 0;
+    return Math.min(initialSecs, elapsedBeforePause + live);
   }
 
   startBtn.addEventListener('click', () => {
@@ -768,19 +1084,7 @@ function makeTimer(initialSecs, displayEl, startBtn, resetBtn, warningAt, syncFn
     } else if (remaining > 0) {
       // Start / Resume
       startedAtMs = Date.now();
-      interval = setInterval(() => {
-        if (--remaining <= 0) {
-          remaining = 0;
-          elapsedBeforePause = initialSecs;
-          startedAtMs = null;
-          clearInterval(interval);
-          interval = null;
-          playBeep(440, 0.6);   // long low beep at 0
-        } else if (remaining <= 3) {
-          playBeep(880, 0.12);  // short high beep at 3, 2, 1
-        }
-        render();
-      }, 1000);
+      interval = setInterval(tick, 1000);
       render();
       if (syncFn) syncFn({ initialSecs, startedAt: startedAtMs, elapsedBeforePause });
     }
@@ -799,7 +1103,23 @@ function makeTimer(initialSecs, displayEl, startBtn, resetBtn, warningAt, syncFn
   resetBtn.addEventListener('click', doReset);
 
   render();
-  return { getElapsed, reset: doReset };
+  return {
+    getElapsed,
+    reset: doReset,
+    restoreState: (newState) => {
+      if (!newState) return;
+      clearInterval(interval);
+      interval = null;
+      if (newState.startedAt !== null) {
+        resumeFrom(newState.startedAt, newState.elapsedBeforePause || 0);
+      } else {
+        elapsedBeforePause = newState.elapsedBeforePause || 0;
+        remaining = initialSecs - elapsedBeforePause;
+        startedAtMs = null;
+      }
+      render();
+    }
+  };
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────

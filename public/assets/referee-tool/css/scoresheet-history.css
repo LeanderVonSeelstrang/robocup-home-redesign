@@ -1,0 +1,280 @@
+/* ── HEADER ─────────────────────────────────────────────────────── */
+
+#sheet-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--surface);
+  border-bottom: 2px solid var(--accent);
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sheet-nav-link {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-decoration: none;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.sheet-nav-link:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+#header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+#test-name {
+  font-family: 'Space Mono', monospace;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#team-name {
+  font-size: 0.85rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── HISTORY CONTAINER ──────────────────────────────────────────── */
+
+#history-container {
+  padding: 20px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+#history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.test-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.test-header {
+  background: rgba(0, 0, 0, 0.05);
+  padding: 12px 14px;
+  font-weight: 600;
+  font-family: 'Space Mono', monospace;
+  color: var(--accent);
+  border-bottom: 1px solid var(--border);
+}
+
+.test-summary {
+  padding: 12px 14px;
+  display: flex;
+  gap: 20px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+}
+
+.summary-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.summary-item strong {
+  color: var(--accent);
+  font-family: 'Space Mono', monospace;
+}
+
+.runs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+}
+
+.run-item {
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  overflow: hidden;
+}
+
+.run-header {
+  padding: 12px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.02);
+  transition: background 0.15s ease;
+}
+
+.run-header:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.run-score {
+  font-family: 'Space Mono', monospace;
+  font-weight: 600;
+  font-size: 1.1rem;
+  color: var(--accent);
+  min-width: 60px;
+}
+
+.run-ref {
+  font-size: 0.8rem;
+  color: var(--muted);
+  flex: 1;
+  text-align: center;
+  padding: 0 10px;
+}
+
+.run-time {
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-family: 'Space Mono', monospace;
+  white-space: nowrap;
+}
+
+.run-details {
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.01);
+  font-size: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.run-slot {
+  display: flex;
+  gap: 6px;
+}
+
+.run-slot strong {
+  font-family: 'Space Mono', monospace;
+  color: var(--text);
+}
+
+.run-notes {
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 4px;
+  max-height: 80px;
+  overflow: auto;
+  word-break: break-word;
+}
+
+.run-scores details,
+.run-feed details {
+  cursor: pointer;
+}
+
+.run-scores summary,
+.run-feed summary {
+  font-weight: 500;
+  padding: 6px 0;
+  color: var(--accent);
+  user-select: none;
+}
+
+.run-scores summary:hover,
+.run-feed summary:hover {
+  text-decoration: underline;
+}
+
+.run-scores pre {
+  background: rgba(0, 0, 0, 0.1);
+  padding: 10px;
+  border-radius: 4px;
+  overflow: auto;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.feed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.feed-entry {
+  display: flex;
+  gap: 12px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 3px;
+  font-size: 0.8rem;
+  align-items: center;
+}
+
+.feed-label {
+  flex: 1;
+  color: var(--text);
+}
+
+.feed-delta {
+  font-family: 'Space Mono', monospace;
+  font-weight: 600;
+  min-width: 40px;
+  text-align: right;
+}
+
+.feed-delta.positive {
+  color: #28a745;
+}
+
+.feed-delta.negative {
+  color: #dc3545;
+}
+
+.feed-time {
+  font-family: 'Space Mono', monospace;
+  color: var(--muted);
+  font-size: 0.75rem;
+  min-width: 35px;
+  text-align: right;
+}
+
+.no-runs {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 1.1rem;
+}
+
+.error {
+  padding: 20px;
+  background: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+  border-radius: var(--radius);
+}
+
+#loading {
+  padding: 40px 20px;
+  text-align: center;
+  font-size: 1.1rem;
+  color: var(--muted);
+}

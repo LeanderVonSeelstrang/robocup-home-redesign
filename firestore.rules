@@ -46,6 +46,14 @@ service cloud.firestore {
       match /runs/{runId} {
         allow read:  if true;
         allow write: if isReferee();
+
+        // Presence subcollection: referees can track active sessions
+        match /presence/{presenceId} {
+          allow read:   if request.auth != null && request.auth.token.email != null;
+          allow create: if request.auth != null && request.auth.token.email != null;
+          allow update: if request.auth != null && request.auth.token.email != null;
+          allow delete: if request.auth != null && request.auth.token.email != null;
+        }
       }
 
       // Inspections: public read (queue view), referee write.

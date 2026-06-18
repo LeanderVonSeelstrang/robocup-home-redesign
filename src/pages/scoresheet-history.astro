@@ -1,0 +1,44 @@
+---
+import RefLayout from '../layouts/RefLayout.astro';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<RefLayout
+  title="Score Sheet History — RoboCup@Home"
+  fonts="Space+Mono:wght@400;700&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400"
+  cacheControl={true}
+>
+  <link slot="head" rel="stylesheet" href={`${base}/assets/referee-tool/css/shared.css`} />
+  <link slot="head" rel="stylesheet" href={`${base}/assets/referee-tool/css/scoresheet-history.css`} />
+
+  <!-- Referee login overlay -->
+  <div id="referee-login-overlay" class="ref-login-overlay" hidden>
+    <div class="ref-login-card">
+      <div class="ref-login-title">Referee Sign In</div>
+      <div class="ref-login-sub">RoboCup@Home Scoring</div>
+      <form id="referee-login-form">
+        <input type="email"    id="referee-login-email"    class="ref-login-input" placeholder="Email" required autocomplete="email">
+        <input type="password" id="referee-login-password" class="ref-login-input" placeholder="Password" required autocomplete="current-password">
+        <div id="referee-login-error" class="ref-login-error" hidden></div>
+        <button type="submit" id="referee-login-btn" class="ref-login-btn">Sign in</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="loading">Loading…</div>
+
+  <div id="app" hidden>
+    <header id="sheet-header">
+      <a id="back-link" class="sheet-nav-link">← Back</a>
+      <div id="header-left">
+        <span id="test-name">—</span>
+        <span id="team-name">—</span>
+      </div>
+    </header>
+
+    <main id="history-container">
+      <div id="history-list"></div>
+    </main>
+  </div>
+
+  <script is:inline type="module" src={`${base}/assets/referee-tool/js/scoresheet-history.js`}></script>
+</RefLayout>
