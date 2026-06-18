@@ -13,6 +13,45 @@ body {
   flex-direction: column;
 }
 
+/* ── STATUS BANNERS ─────────────────────────────────────────────── */
+
+.status-banner {
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  border-bottom: 1px solid var(--border);
+  display: none;
+  position: sticky;
+  top: 0;
+  z-index: 99;
+}
+
+.status-banner.offline {
+  background: #fff3cd;
+  color: #856404;
+  border-bottom-color: #ffc107;
+}
+
+.status-banner.error {
+  background: #f8d7da;
+  color: #721c24;
+  border-bottom-color: #f5c6cb;
+}
+
+.status-banner .retry-btn {
+  margin-left: 8px;
+  padding: 4px 8px;
+  background: rgba(0,0,0,0.1);
+  border: 1px solid rgba(0,0,0,0.2);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.status-banner .retry-btn:hover {
+  background: rgba(0,0,0,0.2);
+}
+
 /* ── HEADER ─────────────────────────────────────────────────────── */
 
 #sheet-header {
