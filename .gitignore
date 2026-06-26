@@ -2,3 +2,9 @@
 dist/
 node_modules/
 .astro/
+emulator-data/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+.DS_Store
+CLAUDE.md

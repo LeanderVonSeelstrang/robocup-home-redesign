@@ -1,11 +1,12 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-app.js";
 import {
   initializeFirestore,
-  memoryLocalCache
+  memoryLocalCache,
+  connectFirestoreEmulator
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
 import {
   getAuth, signInAnonymously, signInWithEmailAndPassword,
-  signOut, onAuthStateChanged
+  signOut, onAuthStateChanged, connectAuthEmulator
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-auth.js";
 
 const firebaseConfig = {
@@ -24,6 +25,17 @@ export const db = initializeFirestore(app, {
 });
 
 export const auth = getAuth(app);
+
+// ── EMULATOR (localhost only) ── KEEP IN SYNC with src/lib/firebase.ts ──
+// localhost → local emulator, deployed → real DB. Decided automatically by hostname so
+// production (johaq.github.io) is never affected.
+const USE_EMULATOR =
+  typeof location !== 'undefined' &&
+  (location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+if (USE_EMULATOR) {
+  connectFirestoreEmulator(db, 'localhost', 8080);
+  connectAuthEmulator(auth, 'http://localhost:9099', { disableWarnings: true });
+}
 
 // Used by display, competition (public pages) — signs in anonymously if needed.
 // Must wait for authStateReady() so we don't overwrite an existing email session.
