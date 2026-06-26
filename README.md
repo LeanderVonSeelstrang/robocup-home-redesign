@@ -80,5 +80,3 @@ firebase deploy --only firestore:rules --project robocup-home
 ```bash
 cd scripts && node set-admin-claim.js you@example.com
 ```
-
-See [DEPLOYMENT.md](DEPLOYMENT.md) for the full release checklist.
