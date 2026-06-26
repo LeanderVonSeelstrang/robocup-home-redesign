@@ -3,12 +3,16 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ── HELPERS ──────────────────────────────────────────────────────
-    // Admin: signed in with email (not anonymous)
+    // Admin: account carries the `admin` custom claim. Grant it with
+    // scripts/set-admin-claim.js (works against the emulator or, with a
+    // service-account key, production).
     function isAdmin() {
-      return request.auth != null && request.auth.token.email != null;
+      return request.auth != null && request.auth.token.admin == true;
     }
 
-    // Referee or admin: signed in with email/password (not anonymous)
+    // Referee or admin: signed in with email/password (not anonymous).
+    // Admins also satisfy this (they sign in with password), so they keep
+    // run/inspection write access in addition to the admin-only collections.
     function isReferee() {
       return request.auth != null
           && request.auth.token.firebase.sign_in_provider == 'password';

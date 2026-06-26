@@ -510,10 +510,27 @@ body {
   gap: 12px;
 }
 
-#save-status { font-size: 0.85rem; color: var(--muted); flex: 1; }
+/* Left-aligned, fills the free space, single line. `min-width: 0` is the key bit:
+   without it a flex item won't shrink below its (nowrap) text, so a longer message
+   would widen this box and push the buttons. With it, long messages clip with an
+   ellipsis instead and the buttons never move. */
+#save-status {
+  font-size: 0.85rem;
+  color: var(--muted);
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 #submit-btn {
   padding: 14px 32px;
+  /* Sized to the longest label ("Submit Score Sheet") so it stays the same width
+     when the text becomes "Submitting…", "Submitted ✓" or "🔓 Unlock". */
+  min-width: 15rem;
+  text-align: center;
   background: var(--accent);
   color: #000;
   border: none;

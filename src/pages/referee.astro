@@ -2,30 +2,32 @@
 import RefLayout from '../layouts/RefLayout.astro';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
+// Destination cards. `param` is the query key each page expects for the
+// selected competition (dashboard/display/queue use `competition`, results uses `id`).
 const links = [
-  {
-    href: `${base}/dashboard`,
-    label: 'Dashboard',
-    desc: 'Score runs, manage slots and inspections',
-    icon: '📋',
-  },
-  {
-    href: `${base}/display`,
-    label: 'Display',
-    desc: 'Public live scoreboard for the arena screen',
-    icon: '📺',
-  },
-  {
-    href: `${base}/queue`,
-    label: 'Queue',
-    desc: 'Upcoming runs and inspection status',
-    icon: '⏱️',
-  },
+  { id: 'dashboard', page: 'dashboard', param: 'competition', label: 'Dashboard', desc: 'Score runs, manage slots and inspections' },
+  { id: 'display',   page: 'display',   param: 'competition', label: 'Display',   desc: 'Public live scoreboard for the arena screen' },
+  { id: 'queue',     page: 'queue',     param: 'competition', label: 'Queue',     desc: 'Upcoming runs and inspection status' },
+  { id: 'results',   page: 'results',   param: 'id',          label: 'Results',   desc: 'Overall standings and per-test scores' },
 ];
 ---
 <RefLayout title="Referee Tool — RoboCup@Home">
   <link slot="head" rel="stylesheet" href={`${base}/assets/referee-tool/css/shared.css`} />
   <link slot="head" rel="stylesheet" href={`${base}/assets/referee-tool/css/referee.css`} />
+
+  <!-- Referee/admin login overlay (shared markup expected by ensureRefereeAuth) -->
+  <div id="referee-login-overlay" class="ref-login-overlay" hidden>
+    <div class="ref-login-card">
+      <div class="ref-login-title">Referee Sign In</div>
+      <div class="ref-login-sub">RoboCup@Home Scoring</div>
+      <form id="referee-login-form">
+        <input type="email"    id="referee-login-email"    class="ref-login-input" placeholder="Email" required autocomplete="email">
+        <input type="password" id="referee-login-password" class="ref-login-input" placeholder="Password" required autocomplete="current-password">
+        <div id="referee-login-error" class="ref-login-error" hidden></div>
+        <button type="submit" id="referee-login-btn" class="ref-login-btn">Sign in</button>
+      </form>
+    </div>
+  </div>
 
   <main class="ref-landing">
     <header class="ref-landing-header">
@@ -33,14 +35,39 @@ const links = [
       <p>RoboCup@Home scoring &amp; competition control</p>
     </header>
 
-    <nav class="ref-landing-grid">
+    <div class="ref-auth-bar">
+      <span id="ref-auth-status" class="ref-auth-status">—</span>
+      <button id="ref-signin-btn"  class="ref-menu-link" hidden>Sign in</button>
+      <button id="ref-signout-btn" class="ref-menu-link" hidden>Sign out</button>
+    </div>
+
+    <div class="ref-comp-picker">
+      <label for="comp-select">Competition</label>
+      <select id="comp-select" disabled>
+        <option>Loading…</option>
+      </select>
+    </div>
+
+    <nav class="ref-landing-grid" id="ref-landing-grid" aria-busy="true">
       {links.map((l) => (
-        <a class="ref-landing-card" href={l.href}>
-          <span class="ref-landing-icon" aria-hidden="true">{l.icon}</span>
+        <a class="ref-landing-card is-disabled" id={`card-${l.id}`} data-page={l.page} data-param={l.param} aria-disabled="true">
           <span class="ref-landing-label">{l.label}</span>
           <span class="ref-landing-desc">{l.desc}</span>
         </a>
       ))}
     </nav>
+
+    <!-- Admin-only: revealed by referee.js when the signed-in account has the `admin` claim -->
+    <section id="ref-admin-section" hidden>
+      <div class="ref-section-label">Admin</div>
+      <nav class="ref-landing-grid">
+        <a class="ref-landing-card" id="card-admin" href={`${base}/admin`}>
+          <span class="ref-landing-label">Admin Console</span>
+          <span class="ref-landing-desc">Manage competitions, teams, tests &amp; schedule</span>
+        </a>
+      </nav>
+    </section>
   </main>
+
+  <script is:inline type="module" src={`${base}/assets/referee-tool/js/referee.js`}></script>
 </RefLayout>

@@ -32,7 +32,10 @@ let unlockTimeout = null;
 
 let testDef   = null;
 let scores    = {};   // live score state
-let feed      = [];   // [{label, delta, t, elapsed}] newest-first, written to Firestore for live display
+// Append-only Scoring Activity log. We only ever ADD events (an undo is its own
+// negative entry), so the persisted feedEntries is a faithful trace that can never
+// diverge from local state. This buffer holds events not yet written to Firestore.
+let pendingFeed = [];  // [{label, delta, t, id, writer, elapsed?, kind?}]
 let saveTimer = null;
 
 // Tracks elapsed seconds on the main timer so feed entries can record a timestamp
@@ -115,7 +118,6 @@ async function init() {
   if (snap.exists()) {
     const data = snap.data();
     scores            = data.scores       || {};
-    feed              = data.feed         || [];
     restartTaken      = data.restartTaken || false;
     savedTimerState   = data.timerState   || null;
     savedRestartState = data.restartState || null;
@@ -142,7 +144,7 @@ async function init() {
   document.getElementById('reset-confirm-ok').addEventListener('click', async () => {
     document.getElementById('reset-confirm').hidden = true;
     scores = {};
-    feed   = [];
+    pendingFeed = [];
     document.getElementById('notes').value = '';
     refreshAll();
     updateTotal();
@@ -171,9 +173,10 @@ async function init() {
     unlockForm();
   });
 
-  // Back link
+  // Back link — honour an explicit ?back= (e.g. opened from the team-scores page),
+  // otherwise fall back to the dashboard.
   const backLink = document.getElementById('back-link');
-  if (backLink) backLink.href = `${window.__siteBase || ''}/dashboard?competition=${competitionId}`;
+  if (backLink) backLink.href = p.get('back') || `${window.__siteBase || ''}/dashboard?competition=${competitionId}`;
 
   // Prev / Next team links — load slot to find team order
   const slotSnap = await getDoc(doc(db, 'competitions', competitionId, 'slots', slotId));
@@ -236,6 +239,10 @@ async function init() {
 
   timerHandles = mainTimerHandle ? [mainTimerHandle, ...restartTimerHandles] : restartTimerHandles;
 
+  // If the sheet was opened already-submitted, lockForm() ran (during the initial
+  // read above) before these timer handles existed — lock their controls now.
+  if (isSubmitted) timerHandles.forEach(h => h.setLocked(true));
+
   // Live sync — a single listener, set up after the timer handles exist so it
   // can call into them directly. We skip any snapshot that's just the echo of
   // our own write (`lastWriter === clientId`) and apply everything else —
@@ -244,7 +251,7 @@ async function init() {
     // Handle document deletion (reset from another tab)
     if (!remoteSnap.exists()) {
       scores = {};
-      feed = [];
+      pendingFeed = [];
       restartTaken = false;
       isSubmitted = false;
       allowEdits();
@@ -303,14 +310,9 @@ async function init() {
       refreshAll();
       updateTotal();
     }
-    
-    // Handle both old 'feed' format and new 'feedEntries' format
-    if (data.feedEntries) {
-      feed = (data.feedEntries || []).sort((a, b) => (b.t || 0) - (a.t || 0)).slice(0, 30);
-    } else if (data.feed) {
-      feed = data.feed;
-    }
-    
+    // No feed sync needed: the scoresheet doesn't render the activity log, and the
+    // append-only feedEntries in Firestore is the single source of truth for /display.
+
     if (data.restartTaken !== undefined) restartTaken = data.restartTaken;
 
     const notesEl = document.getElementById('notes');
@@ -402,7 +404,7 @@ function renderBoolean(item) {
     if (!scores[item.id]) clearSubScores(item);
     refreshBoolean(item);
     updateTotal();
-    scheduleSave({ label: item.label, delta: scores[item.id] ? item.points : -item.points });
+    scheduleSave({ label: item.label, delta: scores[item.id] ? item.points : -item.points, kind: scores[item.id] ? undefined : 'undo' });
   });
 
   return el;
@@ -458,7 +460,7 @@ function renderPenRow(pen, parentItem) {
       const ptsEl1 = itemEl(parentItem.id)?.querySelector('.item-pts');
       if (ptsEl1) ptsEl1.textContent = `+${itemPts(parentItem)}`;
       updateTotal();
-      scheduleSave({ label: pen.label, delta: e.target.checked ? -pen.points : pen.points });
+      scheduleSave({ label: pen.label, delta: e.target.checked ? -pen.points : pen.points, kind: e.target.checked ? undefined : 'undo' });
     });
   } else if (pen.type === 'percentage') {
     row.innerHTML = `
@@ -478,7 +480,7 @@ function renderPenRow(pen, parentItem) {
       if (ptsEl2) ptsEl2.textContent = `+${itemPts(parentItem)}`;
       updateTotal();
       const delta = Math.round((oldPct - pct) / 100 * parentItem.points);
-      scheduleSave(delta !== 0 ? { label: pen.label, delta } : undefined);
+      scheduleSave(delta !== 0 ? { label: pen.label, delta, kind: delta > 0 ? 'undo' : undefined } : undefined);
     });
   }
   return row;
@@ -495,7 +497,7 @@ function renderModRow(mod) {
   row.querySelector('input').addEventListener('change', e => {
     scores[mod.id] = e.target.checked;
     updateTotal();
-    scheduleSave({ label: mod.label, delta: e.target.checked ? mod.points : -mod.points });
+    scheduleSave({ label: mod.label, delta: e.target.checked ? mod.points : -mod.points, kind: e.target.checked ? undefined : 'undo' });
   });
   return row;
 }
@@ -547,7 +549,7 @@ function renderCount(item) {
       setCount(item, newCount);
       refreshCount(item);
       updateTotal();
-      scheduleSave({ label: item.label, delta: (newCount - oldCount) * item.points });
+      scheduleSave({ label: item.label, delta: (newCount - oldCount) * item.points, kind: newCount < oldCount ? 'undo' : undefined });
     };
     inp.addEventListener('blur', commit);
     inp.addEventListener('keydown', e => e.key === 'Enter' && commit());
@@ -557,7 +559,7 @@ function renderCount(item) {
     if (getCount(item) === 0) return;
     setCount(item, getCount(item) - 1);
     refreshCount(item); updateTotal();
-    scheduleSave({ label: item.label, delta: -item.points });
+    scheduleSave({ label: item.label, delta: -item.points, kind: 'undo' });
   });
 
   header.querySelector('.plus').addEventListener('click', () => {
@@ -638,7 +640,7 @@ function renderInstance(item, idx) {
         scores[item.id][idx][pen.id] = e.target.checked;
         updateInstanceSummary(item, idx);
         updateTotal();
-        scheduleSave({ label: pen.label, delta: e.target.checked ? -pen.points : pen.points });
+        scheduleSave({ label: pen.label, delta: e.target.checked ? -pen.points : pen.points, kind: e.target.checked ? undefined : 'undo' });
       });
     } else if (pen.type === 'percentage') {
       const pct = inst[pen.id] || 0;
@@ -658,7 +660,7 @@ function renderInstance(item, idx) {
         updateInstanceSummary(item, idx);
         updateTotal();
         const delta = Math.round((oldPct - v) / 100 * item.points);
-        scheduleSave(delta !== 0 ? { label: pen.label, delta } : undefined);
+        scheduleSave(delta !== 0 ? { label: pen.label, delta, kind: delta > 0 ? 'undo' : undefined } : undefined);
       });
     }
     penContainer.appendChild(penRow);
@@ -676,7 +678,7 @@ function renderInstance(item, idx) {
       scores[item.id][idx][mod.id] = e.target.checked;
       updateInstanceSummary(item, idx);
       updateTotal();
-      scheduleSave({ label: mod.label, delta: e.target.checked ? mod.points : -mod.points });
+      scheduleSave({ label: mod.label, delta: e.target.checked ? mod.points : -mod.points, kind: e.target.checked ? undefined : 'undo' });
     });
     penContainer.appendChild(modRow);
   }
@@ -718,7 +720,7 @@ function renderStandalonePenalty(item) {
     if (!(scores[item.id] > 0)) return;
     scores[item.id]--;
     refreshPenalty(item); updateTotal();
-    scheduleSave({ label: item.label, delta: item.points });   // removing a penalty restores points
+    scheduleSave({ label: item.label, delta: item.points, kind: 'undo' });   // removing a penalty restores points
   });
   header.querySelector('.plus').addEventListener('click', () => {
     if ((scores[item.id] || 0) >= max) return;
@@ -816,33 +818,41 @@ function updateTotal() {
 
 function scheduleSave(feedEvent) {
   hasPendingSave = true;
-  
+
+  // Append-only: every scoring action — including an undo (which arrives here as its
+  // own signed delta) — becomes a new entry. Nothing is ever removed. `kind: 'undo'`
+  // marks corrections (set by the handler) so the display can flag them.
   if (feedEvent && feedEvent.delta !== 0) {
-    // Cancel-out: if the most recent feed entry has the same label and the exact
-    // opposite delta, the user is simply undoing their last action — remove it
-    // instead of appending a new entry.
-    if (feed.length > 0
-        && feed[0].label === feedEvent.label
-        && feed[0].delta === -feedEvent.delta) {
-      feed = feed.slice(1);
-    } else {
-      const elapsed = getMainTimerElapsed();
-      const entry = { label: feedEvent.label, delta: feedEvent.delta, t: Date.now() };
-      if (elapsed !== null) entry.elapsed = elapsed;
-      feed = [entry, ...feed].slice(0, 30);
-    }
+    const elapsed = getMainTimerElapsed();
+    const t = Date.now();
+    const entry = { label: feedEvent.label, delta: feedEvent.delta, t };
+    if (elapsed !== null)     entry.elapsed = elapsed;
+    if (feedEvent.kind)       entry.kind    = feedEvent.kind;
+    entry.id     = `${t}_${Math.random().toString(36).slice(2)}`;
+    entry.writer = currentReferee?.email || 'unknown';
+    pendingFeed.push(entry);
   }
   setSaveStatus('Saving…');
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
     await attemptSave('draft');
     saveTimer = null;
-  }, 1200);
+  }, 800);
+}
+
+// Serialize all writes through one chain so a draft save that is already in flight
+// finishes before the next save (e.g. submit) starts — otherwise two concurrent
+// merges race and the submit could land before a draft, leaving status as 'draft'.
+let saveChain = Promise.resolve();
+function serializeSave(status) {
+  const next = saveChain.then(() => saveRun(status), () => saveRun(status));
+  saveChain = next.catch(() => {});   // keep the chain alive even if a save fails
+  return next;
 }
 
 async function attemptSave(status) {
   try {
-    await saveRun(status);
+    await serializeSave(status);
   } catch (err) {
     saveFailed = true;
     updateConnectionStatus();
@@ -850,6 +860,10 @@ async function attemptSave(status) {
 }
 
 async function saveRun(status) {
+  // Snapshot-and-clear the append buffer before the (async) write so a scoring action
+  // during the write goes to the next batch; restore on failure so it retries.
+  const toAppend = pendingFeed;
+  pendingFeed = [];
   try {
     const updateData = {
       competitionId, slotId, teamId, teamName, testId,
@@ -863,33 +877,29 @@ async function saveRun(status) {
       lastWriterEmail: currentReferee?.email || 'unknown',
       updatedAt:  serverTimestamp(),
     };
-    
+
     if (status === 'submitted') {
       updateData.submittedAt = serverTimestamp();
       updateData.submittedBy = currentReferee?.email || 'unknown';
     }
-    
-    // Append feed entries via arrayUnion for merge-friendly writes
-    // Each feed entry gets a unique timestamp ID to avoid duplicates
-    if (feed.length > 0) {
-      updateData.feedEntries = arrayUnion(...feed.map(entry => ({
-        ...entry,
-        id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-        writer: currentReferee?.email || 'unknown'
-      })));
+
+    // Append-only activity log: union just the new events (each has a stable id).
+    if (toAppend.length > 0) {
+      updateData.feedEntries = arrayUnion(...toAppend);
     }
-    
+
     await setDoc(runRef, updateData, { merge: true });
-    
+
     hasPendingSave = false;
     saveFailed = false;
     updateConnectionStatus();
-    
+
     if (status === 'draft') {
       setSaveStatus('Saved');
       setTimeout(() => setSaveStatus(''), 2000);
     }
   } catch (err) {
+    pendingFeed = [...toAppend, ...pendingFeed];   // restore unsaved events for retry
     setSaveStatus('Save failed — check connection');
     console.error('Save error:', err);
     saveFailed = true;
@@ -901,8 +911,14 @@ async function submitRun() {
   const btn = document.getElementById('submit-btn');
   btn.disabled = true;
   btn.textContent = 'Submitting…';
+  // Cancel any pending debounced draft save. Otherwise it fires ~1.2s later, writes
+  // status back to 'draft', and the live listener reverts the button — which is why
+  // submit sometimes appeared to need a second press.
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  hasPendingSave = false;
   try {
-    await saveRun('submitted');
+    await serializeSave('submitted');   // waits for any in-flight draft save first
     lockForm();
   } catch {
     btn.disabled = false;
@@ -911,16 +927,10 @@ async function submitRun() {
 }
 
 function disallowEdits() {
-  // Stop all running timers by clicking their start buttons (toggles pause)
-  const timerBtns = document.querySelectorAll('.timer-ctrl-btn[title="Start / Pause"]');
-  timerBtns.forEach(btn => {
-    // Only click if timer is currently running (button shows pause symbol ⏸)
-    if (btn.textContent === '\u23F8\uFE0E') btn.click();
-  });
-  
-  // Disable all timer control buttons
-  const allTimerBtns = document.querySelectorAll('.timer-ctrl-btn');
-  allTimerBtns.forEach(btn => btn.disabled = true);
+  // Pause every timer and lock its controls (start/stop/reset) while submitted.
+  // render() re-derives the buttons' disabled state from this lock, so it can no
+  // longer re-enable them the way plain `btn.disabled = true` was being undone.
+  (timerHandles || []).forEach(h => { h.pause?.(); h.setLocked?.(true); });
   
   // Disable all score buttons (boolean, count, penalties, etc.)
   const scoreButtons = document.querySelectorAll('.boolean-toggle, .count-btn, .penalty-check, .pct-input');
@@ -944,9 +954,8 @@ function disallowEdits() {
 }
 
 function allowEdits() {
-  // Enable all timer control buttons
-  const timerBtns = document.querySelectorAll('.timer-ctrl-btn');
-  timerBtns.forEach(btn => btn.disabled = false);
+  // Unlock every timer's controls (start/stop/reset)
+  (timerHandles || []).forEach(h => h.setLocked?.(false));
   
   // Enable all score buttons
   const scoreButtons = document.querySelectorAll('.boolean-toggle, .count-btn, .penalty-check, .pct-input');
@@ -1046,12 +1055,13 @@ function playBeep(freq, duration) {
 
 function makeTimer(initialSecs, displayEl, startBtn, resetBtn, warningAt, syncFn, savedState) {
   if (!displayEl || !startBtn || !resetBtn) {
-    return { getElapsed: () => null, reset: () => {}, restoreState: () => {} };
+    return { getElapsed: () => null, reset: () => {}, restoreState: () => {}, pause: () => {}, setLocked: () => {} };
   }
   let remaining          = initialSecs;
   let interval           = null;
   let elapsedBeforePause = 0;   // seconds accumulated in previous runs
   let startedAtMs        = null; // Date.now() when last started
+  let locked             = false; // when the sheet is submitted: start/stop/reset disabled
 
   function fmt(s) {
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
@@ -1062,19 +1072,25 @@ function makeTimer(initialSecs, displayEl, startBtn, resetBtn, warningAt, syncFn
     displayEl.classList.toggle('warning', interval !== null && remaining > 0 && remaining <= warningAt);
     displayEl.classList.toggle('expired', remaining === 0);
     startBtn.textContent = interval !== null ? '\u23F8\uFE0E' : '▶';
-    startBtn.disabled    = remaining === 0;
+    startBtn.disabled    = locked || remaining === 0;
+    resetBtn.disabled    = locked;
   }
 
   function tick() {
-    if (--remaining <= 0) {
-      remaining = 0;
+    // Recompute remaining from wall-clock (elapsed since startedAt) instead of counting
+    // down locally. setInterval drifts/stalls when the tab is backgrounded; recomputing
+    // keeps this in lock-step with the live /display, which derives time the same way.
+    const prev = remaining;
+    const elapsed = elapsedBeforePause + Math.round((Date.now() - startedAtMs) / 1000);
+    remaining = Math.max(0, initialSecs - elapsed);
+    if (remaining === 0) {
       elapsedBeforePause = initialSecs;
       startedAtMs = null;
       clearInterval(interval);
       interval = null;
-      playBeep(440, 0.6);   // long low beep at 0
-    } else if (remaining <= 3) {
-      playBeep(880, 0.12);  // short high beep at 3, 2, 1
+      if (prev > 0) playBeep(440, 0.6);          // long low beep when first hitting 0
+    } else if (remaining <= 3 && remaining < prev) {
+      playBeep(880, 0.12);                        // short high beep at 3, 2, 1
     }
     render();
   }
@@ -1115,15 +1131,23 @@ function makeTimer(initialSecs, displayEl, startBtn, resetBtn, warningAt, syncFn
     return Math.min(initialSecs, elapsedBeforePause + live);
   }
 
+  // Pause programmatically (used on submit/lock); no-op if already paused. Not gated
+  // by `locked` so submitting can still force a running timer to stop.
+  function pause() {
+    if (!interval) return;
+    elapsedBeforePause += Math.round((Date.now() - startedAtMs) / 1000);
+    remaining = Math.max(0, initialSecs - elapsedBeforePause);  // match the synced paused value
+    startedAtMs = null;
+    clearInterval(interval);
+    interval = null;
+    render();
+    if (syncFn) syncFn({ initialSecs, startedAt: null, elapsedBeforePause });
+  }
+
   startBtn.addEventListener('click', () => {
+    if (locked) return;
     if (interval) {
-      // Pause — snapshot elapsed before clearing interval
-      elapsedBeforePause += Math.round((Date.now() - startedAtMs) / 1000);
-      startedAtMs = null;
-      clearInterval(interval);
-      interval = null;
-      render();
-      if (syncFn) syncFn({ initialSecs, startedAt: null, elapsedBeforePause });
+      pause();
     } else if (remaining > 0) {
       // Start / Resume
       startedAtMs = Date.now();
@@ -1143,12 +1167,14 @@ function makeTimer(initialSecs, displayEl, startBtn, resetBtn, warningAt, syncFn
     if (syncFn) syncFn({ initialSecs, startedAt: null, elapsedBeforePause: 0 });
   }
 
-  resetBtn.addEventListener('click', doReset);
+  resetBtn.addEventListener('click', () => { if (locked) return; doReset(); });
 
   render();
   return {
     getElapsed,
     reset: doReset,
+    pause,
+    setLocked: (v) => { locked = v; render(); },
     restoreState: (newState) => {
       if (!newState) return;
       clearInterval(interval);

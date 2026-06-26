@@ -422,7 +422,7 @@ function renderDashLeaderboard() {
   list.innerHTML = ranked.map((entry, i) => `
     <div class="dash-lb-row">
       <span class="dash-lb-rank">${i + 1}</span>
-      <span class="dash-lb-name">${entry.teamName}</span>
+      <a class="dash-lb-name" href="${(window.__siteBase || '') + '/team-scores?' + new URLSearchParams({ competition: currentCompId, team: entry.id, teamName: entry.teamName })}">${entry.teamName}</a>
       <span class="dash-lb-score">${entry.total} pts</span>
     </div>
   `).join('');

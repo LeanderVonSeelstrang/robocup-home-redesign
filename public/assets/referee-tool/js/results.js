@@ -102,7 +102,7 @@ function renderOverall(submitted) {
             <tr class="${i === 0 ? 'row-first' : ''}">
               <td class="col-rank">${medal}</td>
               <td class="col-team">
-                <a href="${window.__siteBase || ''}/team?id=${encodeURIComponent(entry.teamId)}" class="results-team-link">${entry.teamName}</a>
+                <a href="${(window.__siteBase || '') + '/team-scores?' + new URLSearchParams({ competition: compId, team: entry.teamId, teamName: entry.teamName })}" class="results-team-link">${entry.teamName}</a>
               </td>
               ${testNames.map(n => {
                 const tid = tests.find(t => t.name === n)?.id;
@@ -162,7 +162,7 @@ function renderPerTest(submitted) {
         <tr class="${i === 0 ? 'row-first' : ''}">
           <td class="col-rank">${medal}</td>
           <td class="col-team">
-            <a href="${window.__siteBase || ''}/team?id=${encodeURIComponent(run.teamId)}" class="results-team-link">${run.teamName || run.teamId}</a>
+            <a href="${(window.__siteBase || '') + '/team-scores?' + new URLSearchParams({ competition: compId, team: run.teamId, teamName: run.teamName || run.teamId })}" class="results-team-link">${run.teamName || run.teamId}</a>
           </td>
           <td class="col-score"><a href="${scoreUrl}" target="_blank" rel="noopener" class="results-score-link">${run.totalScore ?? 0}</a></td>
         </tr>

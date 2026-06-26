@@ -24,10 +24,80 @@
   font-size: 1rem;
 }
 
+/* Auth bar */
+.ref-auth-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.ref-auth-status {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* Admin section */
+#ref-admin-section {
+  margin-top: 2.5rem;
+}
+
+.ref-section-label {
+  font-family: var(--font-head);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Competition picker */
+.ref-comp-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  justify-content: center;
+  margin-bottom: 2rem;
+  flex-wrap: wrap;
+}
+
+.ref-comp-picker label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.ref-comp-picker select {
+  min-width: 240px;
+  padding: 0.6rem 0.9rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.ref-comp-picker select:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .ref-landing-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(2, 1fr);
   gap: 1.25rem;
+}
+
+@media (max-width: 520px) {
+  .ref-landing-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .ref-landing-card {
@@ -42,17 +112,18 @@
   transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
 }
 
-.ref-landing-card:hover,
-.ref-landing-card:focus-visible {
+.ref-landing-card:not(.is-disabled):hover,
+.ref-landing-card:not(.is-disabled):focus-visible {
   border-color: var(--accent);
   transform: translateY(-3px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
   outline: none;
 }
 
-.ref-landing-icon {
-  font-size: 1.9rem;
-  line-height: 1;
+.ref-landing-card.is-disabled {
+  opacity: 0.5;
+  cursor: default;
+  pointer-events: none;
 }
 
 .ref-landing-label {

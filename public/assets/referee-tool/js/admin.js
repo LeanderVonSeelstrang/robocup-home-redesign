@@ -17,13 +17,21 @@ let showInactive           = false;  // competitions filter
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 
+// Admin access requires the `admin` custom claim — the same signal firestore.rules
+// checks (isAdmin()). Being signed in with an email is not enough: referees are
+// email users WITHOUT the claim, and must not reach the admin app.
+async function isAdminUser(user) {
+  if (!user?.email) return false;
+  try { return (await user.getIdTokenResult()).claims.admin === true; }
+  catch { return false; }
+}
+
 async function init() {
   // authStateReady() waits until persistent auth state is fully loaded,
   // avoiding a flash of the login screen when the admin reloads the page.
   await auth.authStateReady();
-  const user = auth.currentUser;
 
-  if (user?.email) {
+  if (await isAdminUser(auth.currentUser)) {
     showAdminApp();
     await showCompetitions();
   } else {
@@ -47,9 +55,19 @@ function showLoginScreen() {
     loginBtn.disabled = true;
     loginBtn.textContent = 'Signing in…';
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      showAdminApp();
-      await showCompetitions();
+      const cred = await signInWithEmailAndPassword(auth, email, password);
+      if (await isAdminUser(cred.user)) {
+        showAdminApp();
+        await showCompetitions();
+      } else {
+        // Valid credentials but not an admin (e.g. a referee account) — don't leave
+        // them in a half-signed-in state where every write would fail server-side.
+        await signOut(auth);
+        errorEl.textContent = 'This account does not have admin access.';
+        errorEl.hidden = false;
+        loginBtn.disabled = false;
+        loginBtn.textContent = 'Sign in';
+      }
     } catch (err) {
       errorEl.textContent = friendlyAuthError(err.code);
       errorEl.hidden = false;

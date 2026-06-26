@@ -21,6 +21,9 @@ let timerState    = null;
 let lastScore     = null;
 let lastFeedLen   = 0;
 
+// Final-result screen state — truthy while the 5s "Final Result" card is showing
+let finalResultTimer = null;
+
 // Idle rotation state
 let idleInterval      = null;
 let idleSlideIdx      = 0;
@@ -31,10 +34,19 @@ const IDLE_SLIDE_SECS = 9;
 
 function showScreen(id) {
   for (const el of document.querySelectorAll(
-    '#screen-loading, #screen-comp, #screen-arena, #screen-waiting, #screen-idle, #screen-live'
+    '#screen-loading, #screen-comp, #screen-arena, #screen-waiting, #screen-idle, #screen-live, #screen-final'
   )) {
     el.hidden = el.id !== id;
   }
+}
+
+// "10:00" → "10:00 AM" — disambiguates a scheduled start time from a countdown.
+function to12h(t) {
+  if (!t) return '—';
+  const [h, m] = t.split(':').map(Number);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12  = h % 12 || 12;
+  return `${h12}:${String(m ?? 0).padStart(2, '0')} ${ampm}`;
 }
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
@@ -206,6 +218,8 @@ function teardownListeners() {
   clearInterval(restartInterval);
   restartInterval = null;
   restartState    = null;
+  clearTimeout(finalResultTimer);
+  finalResultTimer = null;
   stopIdleRotation();
 }
 
@@ -223,6 +237,21 @@ function checkActiveRun() {
     .sort(([, a], [, b]) => (b.updatedAt?.seconds ?? 0) - (a.updatedAt?.seconds ?? 0));
 
   const newActiveRunId = candidates[0]?.[0] ?? null;
+
+  // The run we were showing live just dropped out of the draft list. If that's because
+  // it was submitted, flash its final result for 10s before moving on.
+  if (activeRunId && newActiveRunId !== activeRunId
+      && currentRuns[activeRunId]?.status === 'submitted') {
+    showFinalResult(currentRuns[activeRunId]);
+    activeRunId = newActiveRunId;
+    return;
+  }
+
+  // Hold on the final-result screen until its timer elapses.
+  if (finalResultTimer) {
+    activeRunId = newActiveRunId;
+    return;
+  }
 
   if (newActiveRunId !== activeRunId) {
     activeRunId   = newActiveRunId;
@@ -251,6 +280,24 @@ function checkActiveRun() {
     stopIdleRotation();
     showScreen('screen-waiting');
   }
+}
+
+// Show a run's final result for 10s, then re-evaluate (rotating overview or next run).
+function showFinalResult(run) {
+  stopIdleRotation();
+  clearInterval(timerInterval);   timerInterval   = null;
+  clearInterval(restartInterval); restartInterval = null;
+
+  document.getElementById('final-test').textContent  = run.testName || run.testId || '—';
+  document.getElementById('final-team').textContent  = run.teamName || '—';
+  document.getElementById('final-score').textContent = run.totalScore ?? 0;
+  showScreen('screen-final');
+
+  clearTimeout(finalResultTimer);
+  finalResultTimer = setTimeout(() => {
+    finalResultTimer = null;
+    checkActiveRun();
+  }, 10000);
 }
 
 // ── IDLE ROTATION ─────────────────────────────────────────────────────────────
@@ -356,7 +403,8 @@ function renderIdleSlide(animate) {
     titleEl.textContent = 'Up Next';
     bodyEl.innerHTML = `
       <div class="idle-nextup">
-        <div class="idle-nextup-time">${slot.time || '—'}</div>
+        <div class="idle-nextup-label">Starts at</div>
+        <div class="idle-nextup-time">${to12h(slot.time)}</div>
         <div class="idle-nextup-test">${testName}</div>
         ${teams ? `<div class="idle-nextup-teams">${teams}</div>` : ''}
       </div>
@@ -412,7 +460,16 @@ function renderRun(data) {
   updateScore(data.totalScore ?? 0);
   updateTimerState(data.timerState ?? null);
   updateRestartState(data.restartState ?? null, data.restartTaken ?? false);
-  updateFeed(data.feed ?? []);
+  updateFeed(feedFrom(data));
+}
+
+// The scoresheet writes the scoring feed as `feedEntries` (newest-first after sorting
+// by `t`); older runs used a plain `feed` array. Read either so Scoring Activity shows.
+function feedFrom(data) {
+  if (data.feedEntries) {
+    return [...data.feedEntries].sort((a, b) => (b.t || 0) - (a.t || 0)).slice(0, 30);
+  }
+  return data.feed ?? [];
 }
 
 // ── SCORE ─────────────────────────────────────────────────────────────────────
@@ -545,10 +602,14 @@ function updateFeed(feed) {
     else if (idx >= 3)        item.classList.add('feed-oldest');
     else if (idx >= 1)        item.classList.add('feed-old');
 
+    // Corrections (an undone/removed action) are tagged so the audience can tell them
+    // apart from a real penalty. The signed delta + colour still show the point change.
+    const isUndo   = entry.kind === 'undo';
+    if (isUndo) item.classList.add('feed-undo');
     const sign     = entry.delta >= 0 ? '+' : '';
     const deltaCls = entry.delta >= 0 ? 'positive' : 'negative';
     item.innerHTML = `
-      <span class="feed-label">${entry.label}</span>
+      <span class="feed-label">${isUndo ? '<span class="feed-undo-mark">↩</span> ' : ''}${entry.label}</span>
       <span class="feed-delta ${deltaCls}">${sign}${entry.delta}</span>
     `;
     list.appendChild(item);

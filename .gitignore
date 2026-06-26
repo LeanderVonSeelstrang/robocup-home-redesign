@@ -3,8 +3,12 @@ dist/
 node_modules/
 .astro/
 emulator-data/
-firebase-debug.log
-firestore-debug.log
-ui-debug.log
+*firebase-debug*.log
+*firestore-debug*.log
+*ui-debug*.log
+*database-debug*.log
 .DS_Store
 CLAUDE.md
+.claude
+RobocupRulebook.pdf
+TestsRobocupRulebook.pdf

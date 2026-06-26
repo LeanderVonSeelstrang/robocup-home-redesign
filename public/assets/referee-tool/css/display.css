@@ -404,6 +404,17 @@ body {
 .feed-delta.positive { color: var(--accent); }
 .feed-delta.negative { color: var(--penalty); }
 
+/* Corrections (undone/removed actions) — muted, with a ↩ marker and the label
+   struck through, so the audience reads them as a referee correction. */
+.feed-item.feed-undo .feed-label { color: var(--muted); text-decoration: line-through; }
+.feed-item.feed-undo .feed-delta { opacity: 0.7; }
+.feed-undo-mark {
+  display: inline-block;        /* keep the ↩ out of the label's line-through */
+  font-family: 'Space Mono', monospace;
+  color: var(--muted);
+  margin-right: 2px;
+}
+
 /* ── IDLE ROTATION SCREEN ────────────────────────────────────────── */
 
 #screen-idle {
@@ -529,6 +540,14 @@ body {
   text-align: center;
 }
 
+.idle-nextup-label {
+  font-family: 'Space Mono', monospace;
+  font-size: clamp(0.8rem, 1.6vw, 1.1rem);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+
 .idle-nextup-time {
   font-family: 'Space Mono', monospace;
   font-size: clamp(3.5rem, 10vw, 7rem);
@@ -548,6 +567,58 @@ body {
   color: var(--muted);
   max-width: 70%;
   line-height: 1.5;
+}
+
+/* Final-result screen (shown 5s after a run is submitted) */
+#screen-final {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 32px;
+}
+
+#final-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+}
+
+#final-label {
+  font-family: 'Space Mono', monospace;
+  font-size: clamp(0.9rem, 2vw, 1.3rem);
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--accent);
+}
+
+.final-test {
+  font-size: clamp(1.4rem, 3.5vw, 2.6rem);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.final-team {
+  font-size: clamp(1.1rem, 2.5vw, 1.8rem);
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.final-score {
+  font-family: 'Space Mono', monospace;
+  font-size: clamp(5rem, 16vw, 12rem);
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1;
+}
+
+.final-unit {
+  font-size: clamp(1rem, 2vw, 1.4rem);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
 }
 
 /* Progress bar */

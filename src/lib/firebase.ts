@@ -13,15 +13,22 @@ const firebaseConfig = {
 
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 
-export const db = initializeFirestore(app, { localCache: memoryLocalCache() });
-export const auth = getAuth(app);
-
 // ── EMULATOR (localhost only) ── KEEP IN SYNC with public/assets/referee-tool/js/firebase.js ──
 // localhost → local emulator, deployed → real DB. Decided automatically by hostname so
 // production builds (johaq.github.io) are never affected. Also guarded against the static
 // build step (no `window`), since this module runs at build time via teams.astro / LiveBanner.astro.
-if (typeof window !== 'undefined' &&
-    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+const onLocalhost = typeof window !== 'undefined' &&
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+// Force long-polling against the emulator: the default WebChannel transport is slow and
+// flaky against the local Firestore emulator (causes "client is offline" + multi-second waits).
+export const db = initializeFirestore(app, {
+  localCache: memoryLocalCache(),
+  ...(onLocalhost ? { experimentalForceLongPolling: true } : {}),
+});
+export const auth = getAuth(app);
+
+if (onLocalhost) {
   connectFirestoreEmulator(db, 'localhost', 8080);
   connectAuthEmulator(auth, 'http://localhost:9099', { disableWarnings: true });
 }
