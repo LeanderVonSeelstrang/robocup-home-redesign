@@ -174,6 +174,7 @@ async function seedCompetition(teams) {
     city: 'TBD', country: 'TBD',
     timezone: 'Asia/Tokyo', adminCreated: true, active: true,
     arenas: ARENAS,   // the display/scoreboard reads arenas off the competition doc
+    finalResultSecs: 10,   // display/streaming hold the post-submit "Final" card this long
     // the dashboard's inspection panel lists participatingTeams (not slot teams)
     participatingTeams: teams.map(t => ({ teamId: t.id, teamName: t.name })),
   });

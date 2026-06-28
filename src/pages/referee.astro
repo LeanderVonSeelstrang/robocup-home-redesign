@@ -5,8 +5,9 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 // Destination cards. `param` is the query key each page expects for the
 // selected competition (dashboard/display/queue use `competition`, results uses `id`).
 const links = [
-  { id: 'dashboard', page: 'dashboard', param: 'competition', label: 'Dashboard', desc: 'Score runs, manage slots and inspections' },
+  { id: 'dashboard', page: 'dashboard', param: 'competition', label: 'Dashboard', desc: 'Score runs, manage slots and inspections', wide: true },
   { id: 'display',   page: 'display',   param: 'competition', label: 'Display',   desc: 'Public live scoreboard for the arena screen' },
+  { id: 'streaming', page: 'streaming', param: 'competition', label: 'Stream Overlay', desc: 'Transparent OBS overlay for the stream' },
   { id: 'queue',     page: 'queue',     param: 'competition', label: 'Queue',     desc: 'Upcoming runs and inspection status' },
   { id: 'results',   page: 'results',   param: 'id',          label: 'Results',   desc: 'Overall standings and per-test scores' },
 ];
@@ -50,7 +51,7 @@ const links = [
 
     <nav class="ref-landing-grid" id="ref-landing-grid" aria-busy="true">
       {links.map((l) => (
-        <a class="ref-landing-card is-disabled" id={`card-${l.id}`} data-page={l.page} data-param={l.param} aria-disabled="true">
+        <a class:list={["ref-landing-card", "is-disabled", { "ref-landing-card--wide": l.wide }]} id={`card-${l.id}`} data-page={l.page} data-param={l.param} aria-disabled="true">
           <span class="ref-landing-label">{l.label}</span>
           <span class="ref-landing-desc">{l.desc}</span>
         </a>
@@ -65,6 +66,15 @@ const links = [
           <span class="ref-landing-label">Admin Console</span>
           <span class="ref-landing-desc">Manage competitions, teams, tests &amp; schedule</span>
         </a>
+        <div class="ref-final-card">
+          <span class="ref-landing-label">Final result duration</span>
+          <span class="ref-landing-desc">How long Display &amp; Stream hold the result after submit — 0 disables it</span>
+          <div class="ref-final-row">
+            <input id="final-secs" type="number" min="0" max="120" step="0.5" value="10" />
+            <span class="ref-final-unit">seconds</span>
+            <span id="final-secs-status" class="ref-final-status" aria-live="polite"></span>
+          </div>
+        </div>
       </nav>
     </section>
   </main>

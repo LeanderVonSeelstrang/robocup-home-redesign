@@ -77,10 +77,12 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
     <footer id="sheet-footer">
       <textarea id="notes" placeholder="Notes for this run…"></textarea>
-      <div id="footer-actions">
-        <span id="save-status"></span>
-        <button id="reset-btn" class="btn-reset" title="Reset score sheet">↺ Reset</button>
-        <button id="submit-btn">Submit Score Sheet</button>
+      <div id="footer-bar">
+        <div id="save-status"></div>
+        <div id="footer-actions">
+          <button id="reset-btn" class="btn-reset" title="Reset score sheet">↺ Reset</button>
+          <button id="submit-btn">Submit Score Sheet</button>
+        </div>
       </div>
     </footer>
 

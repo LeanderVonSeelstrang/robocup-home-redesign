@@ -88,6 +88,44 @@
   cursor: default;
 }
 
+/* Admin-only "Final result duration" control — plain text + field (no card chrome),
+   padded to line up with the Admin Console card beside it. */
+.ref-final-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 1.75rem 1.5rem;
+}
+
+.ref-final-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.ref-final-card input {
+  width: 5.5rem;
+  padding: 0.5rem 0.7rem;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+}
+
+.ref-final-unit {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.ref-final-status {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-left: auto;
+}
+
 .ref-landing-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -98,6 +136,14 @@
   .ref-landing-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* Span the full first row — used for the primary Dashboard card and the lone
+   Admin card so they fill both columns instead of leaving a gap. */
+.ref-landing-card--wide { grid-column: 1 / -1; }
+
+@media (max-width: 520px) {
+  .ref-landing-card--wide { grid-column: auto; }
 }
 
 .ref-landing-card {

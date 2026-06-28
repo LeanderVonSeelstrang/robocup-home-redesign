@@ -14,6 +14,8 @@ let currentRuns      = {};     // runId  → run data
 let activeRunId      = null;
 let unsubSlots       = null;
 let unsubRuns        = null;
+let unsubComp        = null;
+let finalResultSecs  = 10;     // how long the post-submit "Final Result" card shows
 
 // Live-display state
 let timerInterval = null;
@@ -188,6 +190,12 @@ function selectArena(arena) {
 
   showScreen('screen-waiting');
 
+  // Keep the configurable "Final Result" duration in sync (set on /referee).
+  unsubComp = onSnapshot(doc(db, 'competitions', selectedCompId), snap => {
+    const v = Number(snap.data()?.finalResultSecs);
+    finalResultSecs = Number.isFinite(v) && v >= 0 ? v : 10;
+  });
+
   // Subscribe to slots — we need these to know which slots belong to this arena
   unsubSlots = onSnapshot(
     collection(db, 'competitions', selectedCompId, 'slots'),
@@ -212,6 +220,7 @@ function selectArena(arena) {
 function teardownListeners() {
   if (unsubSlots) { unsubSlots(); unsubSlots = null; }
   if (unsubRuns)  { unsubRuns();  unsubRuns  = null; }
+  if (unsubComp)  { unsubComp();  unsubComp  = null; }
   clearInterval(timerInterval);
   timerInterval = null;
   timerState    = null;
@@ -239,8 +248,9 @@ function checkActiveRun() {
   const newActiveRunId = candidates[0]?.[0] ?? null;
 
   // The run we were showing live just dropped out of the draft list. If that's because
-  // it was submitted, flash its final result for 10s before moving on.
-  if (activeRunId && newActiveRunId !== activeRunId
+  // it was submitted, flash its final result (for the configured duration) before moving on.
+  // A duration of 0 disables the final card entirely — fall through to the next run / idle.
+  if (activeRunId && newActiveRunId !== activeRunId && finalResultSecs > 0
       && currentRuns[activeRunId]?.status === 'submitted') {
     showFinalResult(currentRuns[activeRunId]);
     activeRunId = newActiveRunId;
@@ -282,7 +292,7 @@ function checkActiveRun() {
   }
 }
 
-// Show a run's final result for 10s, then re-evaluate (rotating overview or next run).
+// Show a run's final result for the configured duration, then re-evaluate (overview or next run).
 function showFinalResult(run) {
   stopIdleRotation();
   clearInterval(timerInterval);   timerInterval   = null;
@@ -297,7 +307,7 @@ function showFinalResult(run) {
   finalResultTimer = setTimeout(() => {
     finalResultTimer = null;
     checkActiveRun();
-  }, 10000);
+  }, finalResultSecs * 1000);
 }
 
 // ── IDLE ROTATION ─────────────────────────────────────────────────────────────
