@@ -324,7 +324,7 @@ async function seedDemoRun() {
   const { slotId, team } = demoTarget;
 
   const now = Date.now();
-  const feedEntries = [
+  const feedEvents = [
     { label: 'Detect the doorbell sound',          delta:  30, t: now - 90000, elapsed: 12 },
     { label: 'Open the entrance door for a guest', delta: 200, t: now - 60000, elapsed: 40 },
     { label: 'Offer a free seat to the new guest', delta: 100, t: now - 30000, elapsed: 75 },
@@ -339,11 +339,17 @@ async function seedDemoRun() {
   await fsSet(`competitions/${COMP_ID}/runs/${runId}`, {
     competitionId: COMP_ID, slotId, teamId: team.teamId, teamName: team.teamName,
     testId: 'hri_challenge', testName: 'HRI Challenge',
-    status: 'draft', totalScore: total, scores, feedEntries,
+    status: 'draft', totalScore: total, scores,
     timerState: { initialSecs: 360, startedAt: null, elapsedBeforePause: 95 },  // paused at 4:25 left
     restartTaken: false, updatedAt: new Date(),
   });
-  console.log(`  ✓ demo in-progress run for ${team.teamName} (Arena A) — ${feedEntries.length} feed entries, ${total} pts`);
+
+  // Scoring activity lives in the runs/{id}/feed subcollection — one doc per event
+  // (keyed by its stable id), matching how /scoresheet writes it.
+  for (const { id, ...rest } of feedEvents) {
+    await fsSet(`competitions/${COMP_ID}/runs/${runId}/feed/${id}`, rest);
+  }
+  console.log(`  ✓ demo in-progress run for ${team.teamName} (Arena A) — ${feedEvents.length} feed entries, ${total} pts`);
 }
 
 async function seedAuthUsers() {

@@ -90,20 +90,18 @@ async function init() {
 
   renderInfo();
 
-  // Real-time listeners
+  // Real-time listeners. Update state, then ask for a single coalesced re-render so a
+  // burst of score updates doesn't trigger a full re-render per snapshot.
   onSnapshot(collection(db, 'competitions', compId, 'slots'), snap => {
     slots = {};
     snap.docs.forEach(d => { slots[d.id] = { id: d.id, ...d.data() }; });
-    renderSchedule();
-    renderLiveBox();
+    scheduleRender();
   });
 
   onSnapshot(collection(db, 'competitions', compId, 'runs'), snap => {
     runs = {};
     snap.docs.forEach(d => { runs[d.id] = d.data(); });
-    renderLiveBox();
-    updateSlotStates();
-    renderLeaderboard();
+    scheduleRender();
   });
 
   // Re-check active state every minute (time advances)
@@ -111,6 +109,18 @@ async function init() {
 
   document.getElementById('comp-loading').hidden = true;
   document.getElementById('comp-page').hidden = false;
+}
+
+let renderTimer = null;
+function scheduleRender() {
+  if (renderTimer) return;
+  renderTimer = setTimeout(() => {
+    renderTimer = null;
+    renderSchedule();
+    renderLiveBox();
+    updateSlotStates();
+    renderLeaderboard();
+  }, 120);
 }
 
 // ── RENDER INFO ───────────────────────────────────────────────────────────────

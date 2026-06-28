@@ -50,6 +50,14 @@ service cloud.firestore {
       match /runs/{runId} {
         allow read:  if true;
         allow write: if isReferee();
+
+        // Scoring activity feed: one immutable doc per event (append-only). Kept in a
+        // subcollection so run docs stay small and unrelated pages don't download it.
+        // Public read (display/overlay), referee write.
+        match /feed/{eventId} {
+          allow read:  if true;
+          allow write: if isReferee();
+        }
       }
 
       // Inspections: public read (queue view), referee write.

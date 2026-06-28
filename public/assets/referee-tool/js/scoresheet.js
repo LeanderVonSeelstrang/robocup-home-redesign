@@ -1,6 +1,6 @@
 import { db, ensureRefereeAuth } from './firebase.js';
 import {
-  doc, getDoc, setDoc, deleteDoc, onSnapshot, serverTimestamp, arrayUnion
+  doc, collection, getDoc, setDoc, deleteDoc, onSnapshot, serverTimestamp, writeBatch
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
 
 // ── URL params ────────────────────────────────────────────────────────────────
@@ -33,8 +33,9 @@ let unlockTimeout = null;
 let testDef   = null;
 let scores    = {};   // live score state
 // Append-only Scoring Activity log. We only ever ADD events (an undo is its own
-// negative entry), so the persisted feedEntries is a faithful trace that can never
-// diverge from local state. This buffer holds events not yet written to Firestore.
+// negative entry), so the persisted feed (runs/{id}/feed subcollection) is a faithful
+// trace that can never diverge from local state. This buffer holds events not yet
+// written to Firestore.
 let pendingFeed = [];  // [{label, delta, t, id, writer, elapsed?, kind?}]
 let saveTimer = null;
 
@@ -311,7 +312,7 @@ async function init() {
       updateTotal();
     }
     // No feed sync needed: the scoresheet doesn't render the activity log, and the
-    // append-only feedEntries in Firestore is the single source of truth for /display.
+    // append-only runs/{id}/feed subcollection is the single source of truth for /display.
 
     if (data.restartTaken !== undefined) restartTaken = data.restartTaken;
 
@@ -883,12 +884,19 @@ async function saveRun(status) {
       updateData.submittedBy = currentReferee?.email || 'unknown';
     }
 
-    // Append-only activity log: union just the new events (each has a stable id).
+    // Append-only activity log lives in the runs/{id}/feed subcollection — one
+    // immutable doc per event (keyed by its stable id, so writes are idempotent).
+    // Keeping it out of the run doc stops unrelated pages downloading the whole feed.
     if (toAppend.length > 0) {
-      updateData.feedEntries = arrayUnion(...toAppend);
+      const batch = writeBatch(db);
+      batch.set(runRef, updateData, { merge: true });
+      for (const { id, ...rest } of toAppend) {
+        batch.set(doc(collection(runRef, 'feed'), id), rest);
+      }
+      await batch.commit();
+    } else {
+      await setDoc(runRef, updateData, { merge: true });
     }
-
-    await setDoc(runRef, updateData, { merge: true });
 
     hasPendingSave = false;
     saveFailed = false;

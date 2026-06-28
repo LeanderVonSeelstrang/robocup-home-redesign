@@ -1,6 +1,6 @@
 import { db, ensureAuth } from './firebase.js';
 import {
-  collection, doc, getDoc, getDocs, onSnapshot
+  collection, doc, getDoc, getDocs, onSnapshot, query, orderBy, limit
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
@@ -15,6 +15,8 @@ let activeRunId      = null;
 let unsubSlots       = null;
 let unsubRuns        = null;
 let unsubComp        = null;
+let unsubFeed        = null;   // live listener on the active run's feed subcollection
+let feedRunId        = null;   // which run unsubFeed is currently following
 let finalResultSecs  = 10;     // how long the post-submit "Final Result" card shows
 
 // Live-display state
@@ -221,6 +223,7 @@ function teardownListeners() {
   if (unsubSlots) { unsubSlots(); unsubSlots = null; }
   if (unsubRuns)  { unsubRuns();  unsubRuns  = null; }
   if (unsubComp)  { unsubComp();  unsubComp  = null; }
+  if (unsubFeed)  { unsubFeed();  unsubFeed  = null; feedRunId = null; }
   clearInterval(timerInterval);
   timerInterval = null;
   timerState    = null;
@@ -278,11 +281,13 @@ function checkActiveRun() {
   if (activeRunId) {
     stopIdleRotation();
     renderRun(currentRuns[activeRunId]);
+    subscribeFeed(activeRunId);
     showScreen('screen-live');
     return;
   }
 
   // No active run — idle rotation
+  subscribeFeed(null);
   const slides = buildIdleSlides();
   if (slides.length > 0) {
     startIdleRotation(slides);
@@ -470,16 +475,28 @@ function renderRun(data) {
   updateScore(data.totalScore ?? 0);
   updateTimerState(data.timerState ?? null);
   updateRestartState(data.restartState ?? null, data.restartTaken ?? false);
-  updateFeed(feedFrom(data));
+  // The feed comes from its own subcollection listener (subscribeFeed), not the run doc.
 }
 
-// The scoresheet writes the scoring feed as `feedEntries` (newest-first after sorting
-// by `t`); older runs used a plain `feed` array. Read either so Scoring Activity shows.
-function feedFrom(data) {
-  if (data.feedEntries) {
-    return [...data.feedEntries].sort((a, b) => (b.t || 0) - (a.t || 0)).slice(0, 30);
-  }
-  return data.feed ?? [];
+// Follow the active run's append-only feed (runs/{id}/feed). Kept as its own scoped
+// listener so unrelated run-doc updates don't re-fetch the feed, and the feed isn't
+// downloaded for every run. Re-subscribes only when the active run actually changes.
+function subscribeFeed(runId) {
+  if (runId === feedRunId) return;
+  if (unsubFeed) { unsubFeed(); unsubFeed = null; }
+  feedRunId = runId;
+  if (!runId) { updateFeed([]); return; }
+
+  const feedRef = collection(db, 'competitions', selectedCompId, 'runs', runId, 'feed');
+  unsubFeed = onSnapshot(query(feedRef, orderBy('t', 'desc'), limit(30)), snap => {
+    if (!snap.empty) {
+      updateFeed(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } else {
+      // Backward-compat: older runs stored the feed inline as `feedEntries`.
+      const legacy = currentRuns[runId]?.feedEntries;
+      updateFeed(legacy ? [...legacy].sort((a, b) => (b.t || 0) - (a.t || 0)).slice(0, 30) : []);
+    }
+  });
 }
 
 // ── SCORE ─────────────────────────────────────────────────────────────────────

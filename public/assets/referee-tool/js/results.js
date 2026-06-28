@@ -1,6 +1,6 @@
 import { db, ensureAuth } from './firebase.js';
 import {
-  doc, collection, getDoc, getDocs, onSnapshot
+  doc, collection, getDoc, getDocs, onSnapshot, query, where
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
 
 // ── URL PARAMS ────────────────────────────────────────────────────────────────
@@ -35,11 +35,16 @@ async function init() {
   document.getElementById('results-loading').hidden = true;
   document.getElementById('results-page').hidden = false;
 
-  onSnapshot(collection(db, 'competitions', compId, 'runs'), snap => {
-    runs = {};
-    snap.docs.forEach(d => { runs[d.id] = d.data(); });
-    render();
-  });
+  // Results only ever shows submitted runs — scope the subscription so we don't
+  // download in-progress drafts (and the renderer no longer needs to filter).
+  onSnapshot(
+    query(collection(db, 'competitions', compId, 'runs'), where('status', '==', 'submitted')),
+    snap => {
+      runs = {};
+      snap.docs.forEach(d => { runs[d.id] = d.data(); });
+      render();
+    }
+  );
 }
 
 // ── RENDER ────────────────────────────────────────────────────────────────────

@@ -138,36 +138,49 @@ async function showDashboard(compId) {
     }
   }
 
-  // Real-time listeners
+  // Real-time listeners. Each just updates state, then asks for a single coalesced
+  // re-render — a burst of score updates (each its own snapshot) would otherwise trigger
+  // many full O(N) rebuilds of the slot cards + leaderboard.
   onSnapshot(doc(db, 'competitions', compId), snap => {
     compTeams = snap.data()?.participatingTeams || [];
-    renderInspectionPanel(compId);
+    scheduleRender(compId);
   });
 
   onSnapshot(collection(db, 'competitions', compId, 'slots'), snap => {
     slots = {};
     snap.docs.forEach(d => { slots[d.id] = { id: d.id, ...d.data() }; });
     hasInspectionSlot = snap.docs.some(d => d.data().type === 'inspection');
-    renderFilters();
-    renderInspectionPanel(compId);
-    renderSlots(compId);
+    scheduleRender(compId);
   });
 
   onSnapshot(collection(db, 'competitions', compId, 'runs'), snap => {
     runs = {};
     snap.docs.forEach(d => { runs[d.id] = d.data(); });
-    renderInspectionPanel(compId);
-    renderSlots(compId);
-    renderDashLeaderboard();
+    scheduleRender(compId);
   });
 
   onSnapshot(collection(db, 'competitions', compId, 'inspections'), snap => {
     inspections = {};
     snap.docs.forEach(d => { inspections[d.id] = d.data(); });
-    renderInspectionPanel(compId);
+    scheduleRender(compId);
   });
 
   document.getElementById('screen-slots').hidden = false;
+}
+
+// Coalesce render requests: a flurry of snapshot callbacks (e.g. while a referee scores
+// rapidly) collapses into one trailing re-render instead of dozens. The render functions
+// are idempotent from current state, so running them all is safe.
+let renderTimer = null;
+function scheduleRender(compId) {
+  if (renderTimer) return;
+  renderTimer = setTimeout(() => {
+    renderTimer = null;
+    renderFilters();
+    renderInspectionPanel(compId);
+    renderSlots(compId);
+    renderDashLeaderboard();
+  }, 120);
 }
 
 // ── RENDERING ─────────────────────────────────────────────────────────────────

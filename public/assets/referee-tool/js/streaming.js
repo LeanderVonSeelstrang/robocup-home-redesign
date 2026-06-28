@@ -1,6 +1,6 @@
 import { db, ensureAuth } from './firebase.js';
 import {
-  collection, doc, getDoc, getDocs, onSnapshot
+  collection, doc, getDoc, getDocs, onSnapshot, query, orderBy, limit
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
 
 // Stream overlay — a transparent variant of the /display page, built for an OBS
@@ -19,6 +19,8 @@ let activeRunId      = null;
 let unsubSlots       = null;
 let unsubRuns        = null;
 let unsubComp        = null;
+let unsubFeed        = null;   // live listener on the active run's feed subcollection
+let feedRunId        = null;   // which run unsubFeed is currently following
 let finalResultSecs  = 10;     // post-submit "Final" flash duration (set on /referee)
 
 let timerInterval = null;
@@ -40,13 +42,21 @@ async function init() {
   const comp   = params.get('competition');
   const arena  = params.get('arena');
 
-  if (comp && arena) {
-    // Validate the competition exists, then go straight to the live overlay.
+  if (comp) {
     const compSnap = await getDoc(doc(db, 'competitions', comp));
     if (compSnap.exists()) {
-      selectedCompId = comp;
-      selectedArena  = arena;
-      startArena();
+      if (arena) {
+        // Both known (e.g. the OBS URL) → straight to the live overlay.
+        selectedCompId = comp;
+        selectedArena  = arena;
+        startArena();
+      } else {
+        // Competition known (e.g. from the referee menu) → skip the competition
+        // picker and go straight to arena selection.
+        await selectCompetition({ id: comp, ...compSnap.data() });
+        document.getElementById('picker').hidden  = false;
+        document.getElementById('overlay').hidden = true;
+      }
       return;
     }
   }
@@ -107,6 +117,7 @@ function teardownListeners() {
   if (unsubSlots) { unsubSlots(); unsubSlots = null; }
   if (unsubRuns)  { unsubRuns();  unsubRuns  = null; }
   if (unsubComp)  { unsubComp();  unsubComp  = null; }
+  if (unsubFeed)  { unsubFeed();  unsubFeed  = null; feedRunId = null; }
   clearInterval(timerInterval);
   timerInterval = null;
   timerState    = null;
@@ -156,11 +167,13 @@ function checkActiveRun() {
 
   if (activeRunId) {
     renderRun(currentRuns[activeRunId]);
+    subscribeFeed(activeRunId);
     showOverlay();
     return;
   }
 
   // No active run — overlay disappears.
+  subscribeFeed(null);
   hideOverlay();
 }
 
@@ -193,16 +206,27 @@ function renderRun(data) {
   document.getElementById('ov-team').textContent = data.teamName || '—';
   updateScore(data.totalScore ?? 0);
   updateTimerState(data.timerState ?? null);
-  updateFeed(feedFrom(data));
+  // The feed comes from its own subcollection listener (subscribeFeed), not the run doc.
 }
 
-// The scoresheet writes the scoring feed as `feedEntries` (newest-first after sorting
-// by `t`); older runs used a plain `feed` array. Read either so activity still shows.
-function feedFrom(data) {
-  if (data.feedEntries) {
-    return [...data.feedEntries].sort((a, b) => (b.t || 0) - (a.t || 0)).slice(0, 30);
-  }
-  return data.feed ?? [];
+// Follow the active run's append-only feed (runs/{id}/feed) as a scoped listener, so the
+// feed isn't carried on every run doc and unrelated updates don't re-fetch it.
+function subscribeFeed(runId) {
+  if (runId === feedRunId) return;
+  if (unsubFeed) { unsubFeed(); unsubFeed = null; }
+  feedRunId = runId;
+  if (!runId) { updateFeed([]); return; }
+
+  const feedRef = collection(db, 'competitions', selectedCompId, 'runs', runId, 'feed');
+  unsubFeed = onSnapshot(query(feedRef, orderBy('t', 'desc'), limit(30)), snap => {
+    if (!snap.empty) {
+      updateFeed(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } else {
+      // Backward-compat: older runs stored the feed inline as `feedEntries`.
+      const legacy = currentRuns[runId]?.feedEntries;
+      updateFeed(legacy ? [...legacy].sort((a, b) => (b.t || 0) - (a.t || 0)).slice(0, 30) : []);
+    }
+  });
 }
 
 // ── SCORE ─────────────────────────────────────────────────────────────────────

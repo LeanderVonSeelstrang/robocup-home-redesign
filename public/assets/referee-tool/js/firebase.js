@@ -1,7 +1,8 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-app.js";
 import {
   initializeFirestore,
-  memoryLocalCache,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   connectFirestoreEmulator
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
 import {
@@ -29,8 +30,12 @@ const USE_EMULATOR =
 
 // Force long-polling against the emulator: the default WebChannel transport is slow and
 // flaky against the local Firestore emulator (causes "client is offline" + multi-second waits).
+// IndexedDB-backed cache with default LRU eviction (~40MB): bounds memory in a
+// long-lived tab (display/overlay left open all day) and avoids re-downloading the
+// whole dataset on each reload. Multi-tab manager because several referee-tool tabs
+// (display + overlay + dashboard) may be open on one machine.
 export const db = initializeFirestore(app, {
-  localCache: memoryLocalCache(),
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
   ...(USE_EMULATOR ? { experimentalForceLongPolling: true } : {})
 });
 
