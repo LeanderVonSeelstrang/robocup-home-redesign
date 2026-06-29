@@ -175,6 +175,8 @@ async function seedCompetition(teams) {
     timezone: 'Asia/Tokyo', adminCreated: true, active: true,
     arenas: ARENAS,   // the display/scoreboard reads arenas off the competition doc
     finalResultSecs: 10,   // display/streaming hold the post-submit "Final" card this long
+    publicScoresheets: true,  // allow non-referees to open score sheets read-only (admin flag)
+    showResultsQr: true,      // show a /results QR slide in the display rotation (admin flag)
     // the dashboard's inspection panel lists participatingTeams (not slot teams)
     participatingTeams: teams.map(t => ({ teamId: t.id, teamName: t.name })),
   });

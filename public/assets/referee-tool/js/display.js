@@ -2,6 +2,7 @@ import { db, ensureAuth } from './firebase.js';
 import {
   collection, doc, getDoc, getDocs, onSnapshot, query, orderBy, limit
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
+import qrcode from './vendor/qrcode.js';
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
 
@@ -18,6 +19,7 @@ let unsubComp        = null;
 let unsubFeed        = null;   // live listener on the active run's feed subcollection
 let feedRunId        = null;   // which run unsubFeed is currently following
 let finalResultSecs  = 10;     // how long the post-submit "Final Result" card shows
+let showResultsQr    = false;  // admin flag: include a /results QR slide in the rotation
 
 // Live-display state
 let timerInterval = null;
@@ -192,10 +194,12 @@ function selectArena(arena) {
 
   showScreen('screen-waiting');
 
-  // Keep the configurable "Final Result" duration in sync (set on /referee).
+  // Keep competition-level display settings in sync (set in the admin tools).
   unsubComp = onSnapshot(doc(db, 'competitions', selectedCompId), snap => {
-    const v = Number(snap.data()?.finalResultSecs);
+    const data = snap.data() || {};
+    const v = Number(data.finalResultSecs);
     finalResultSecs = Number.isFinite(v) && v >= 0 ? v : 10;
+    showResultsQr   = data.showResultsQr === true;
   });
 
   // Subscribe to slots — we need these to know which slots belong to this arena
@@ -362,7 +366,19 @@ function buildIdleSlides() {
 
   if (nextSlot) slides.push({ type: 'nextup', slot: nextSlot });
 
+  // QR to the public results page (admin-enabled) — lets the audience scan in.
+  if (showResultsQr) slides.push({ type: 'qr' });
+
   return slides;
+}
+
+// Build an <svg> QR for the given text (vendored qrcode-generator). The dark modules
+// render on a transparent background, so the slide places it on a white card.
+function qrSvg(text) {
+  const qr = qrcode(0, 'M');   // auto version, error-correction level M
+  qr.addData(text);
+  qr.make();
+  return qr.createSvgTag({ cellSize: 8, margin: 4, scalable: true });
 }
 
 function startIdleRotation(slides) {
@@ -422,6 +438,21 @@ function renderIdleSlide(animate) {
         <div class="idle-nextup-time">${to12h(slot.time)}</div>
         <div class="idle-nextup-test">${testName}</div>
         ${teams ? `<div class="idle-nextup-teams">${teams}</div>` : ''}
+      </div>
+    `;
+  } else if (slide.type === 'qr') {
+    const url = `${location.origin}${window.__siteBase || ''}/results?id=${selectedCompId}`;
+    titleEl.textContent = 'Live Results';
+    let qrHtml;
+    try {
+      qrHtml = `<div class="idle-qr-code">${qrSvg(url)}</div>`;
+    } catch (_) {
+      qrHtml = `<div class="idle-qr-fallback">${url}</div>`;   // never break the rotation
+    }
+    bodyEl.innerHTML = `
+      <div class="idle-qr">
+        ${qrHtml}
+        <div class="idle-qr-cap">Scan to explore the live scoreboard</div>
       </div>
     `;
   }

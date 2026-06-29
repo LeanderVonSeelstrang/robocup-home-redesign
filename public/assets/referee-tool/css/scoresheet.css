@@ -750,3 +750,32 @@ body {
   flex-direction: column;
   gap: 12px;
 }
+
+/* ── PUBLIC READ-ONLY MODE ──────────────────────────────────────────────────
+   A non-referee viewing the sheet (competition `publicScoresheets` flag on).
+   Hide every edit affordance and make the score controls non-interactive, so it
+   reads as a static score breakdown rather than the editor. Writes are also
+   blocked in JS and denied by firestore.rules — this is presentation only. */
+#app.read-only #sheet-footer,
+#app.read-only #aux-timers,
+#app.read-only .timer-ctrl-btns,
+#app.read-only .count-controls .count-btn { display: none; }
+
+#app.read-only .boolean-toggle,
+#app.read-only .penalty-check,
+#app.read-only .modifier-check,
+#app.read-only .count-value,
+#app.read-only .pct-input { pointer-events: none; }
+
+/* Render the percentage penalty field as static text (no editor chrome). */
+#app.read-only .pct-input {
+  -moz-appearance: textfield;
+  appearance: textfield;
+  background: transparent;
+  border: none;
+}
+#app.read-only .pct-input::-webkit-outer-spin-button,
+#app.read-only .pct-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}

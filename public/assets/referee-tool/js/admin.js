@@ -391,6 +391,8 @@ function startEditCompetition(comp) {
   document.getElementById('comp-country').value    = comp.country    || '';
   document.getElementById('comp-year').value       = comp.year       || '';
   document.getElementById('comp-active').checked   = !!comp.active;
+  document.getElementById('comp-public-scoresheets').checked = !!comp.publicScoresheets;
+  document.getElementById('comp-show-results-qr').checked     = !!comp.showResultsQr;
   document.getElementById('comp-start-date').value = comp.startDate  || '';
   document.getElementById('comp-end-date').value   = comp.endDate    || '';
   document.getElementById('comp-timezone').value    = comp.timezone    || '';
@@ -452,6 +454,8 @@ async function saveCompetition() {
   const country   = document.getElementById('comp-country').value.trim();
   const year      = parseInt(document.getElementById('comp-year').value) || null;
   const active    = document.getElementById('comp-active').checked;
+  const publicScoresheets = document.getElementById('comp-public-scoresheets').checked;
+  const showResultsQr     = document.getElementById('comp-show-results-qr').checked;
   const startDate = document.getElementById('comp-start-date').value || null;
   const endDate   = document.getElementById('comp-end-date').value   || null;
   const timezone  = document.getElementById('comp-timezone').value.trim() || null;
@@ -461,7 +465,7 @@ async function saveCompetition() {
   if (!name) return;
 
   if (editingCompId) {
-    const update = { name, city, country, year, active, startDate, endDate, timezone, streamUrl, refereePin };
+    const update = { name, city, country, year, active, publicScoresheets, showResultsQr, startDate, endDate, timezone, streamUrl, refereePin };
     if (!document.getElementById('comp-podium-section').hidden) {
       update.podium = readPodiumFromForm();
     }
@@ -469,7 +473,7 @@ async function saveCompetition() {
   } else {
     const id = document.getElementById('comp-id').value.trim();
     if (!id) return;
-    await setDoc(doc(db, 'competitions', id), { id, name, city, country, year, active, startDate, endDate, timezone, streamUrl, refereePin, adminCreated: true });
+    await setDoc(doc(db, 'competitions', id), { id, name, city, country, year, active, publicScoresheets, showResultsQr, startDate, endDate, timezone, streamUrl, refereePin, adminCreated: true });
   }
 
   editingCompId = null;

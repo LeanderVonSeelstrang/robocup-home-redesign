@@ -1,4 +1,4 @@
-import { db, ensureRefereeAuth } from './firebase.js';
+import { db, auth, ensureAuth, ensureRefereeAuth } from './firebase.js';
 import {
   doc, collection, getDoc, setDoc, deleteDoc, onSnapshot, serverTimestamp, writeBatch
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
@@ -29,6 +29,10 @@ let hasPendingSave = false;
 let saveFailed = false;
 let isSubmitted = false;
 let unlockTimeout = null;
+// Public read-only mode: a non-referee opened the sheet while the competition's
+// `publicScoresheets` flag is on. The page renders live scores but performs ZERO
+// writes (also enforced server-side by firestore.rules) and hides all edit chrome.
+let readOnly = false;
 
 let testDef   = null;
 let scores    = {};   // live score state
@@ -80,9 +84,24 @@ function updateConnectionStatus() {
 // ── INIT ──────────────────────────────────────────────────────────────────────
 
 async function init() {
-  // Get authenticated referee
-  const user = await ensureRefereeAuth();
-  currentReferee = { email: user.email, uid: user.uid };
+  // Decide the access mode WITHOUT forcing a login first.
+  // - An existing referee/admin session → full editor (unchanged behaviour).
+  // - Otherwise, if the competition allows public score sheets → anonymous read-only.
+  // - Otherwise → the referee login wall, exactly as before.
+  await auth.authStateReady();
+  if (auth.currentUser?.email) {
+    currentReferee = { email: auth.currentUser.email, uid: auth.currentUser.uid };
+  } else {
+    const compSnap = await getDoc(doc(db, 'competitions', competitionId));
+    if (compSnap.exists() && compSnap.data().publicScoresheets === true) {
+      readOnly = true;
+      await ensureAuth();   // anonymous session; never shows the login overlay
+      currentReferee = { email: null, uid: auth.currentUser?.uid || null };
+    } else {
+      const user = await ensureRefereeAuth();
+      currentReferee = { email: user.email, uid: user.uid };
+    }
+  }
 
   // Set up online/offline detection
   window.addEventListener('online', () => {
@@ -123,7 +142,7 @@ async function init() {
     savedTimerState   = data.timerState   || null;
     savedRestartState = data.restartState || null;
     document.getElementById('notes').value = data.notes || '';
-    if (data.status === 'submitted') { lockForm(); alreadySubmitted = true; }
+    if (data.status === 'submitted') { alreadySubmitted = true; if (!readOnly) lockForm(); }
   }
 
   renderScoreSheet();
@@ -143,6 +162,7 @@ async function init() {
     document.getElementById('reset-confirm').hidden = true;
   });
   document.getElementById('reset-confirm-ok').addEventListener('click', async () => {
+    if (readOnly) return;
     document.getElementById('reset-confirm').hidden = true;
     scores = {};
     pendingFeed = [];
@@ -207,6 +227,7 @@ async function init() {
   draftMarked = alreadySubmitted;
 
   const restartSync = async state => {
+    if (readOnly) return;
     if (state.startedAt !== null || state.elapsedBeforePause > 0) restartTaken = true;
     try {
       await setDoc(runRef, { restartState: state, restartTaken, lastWriter: clientId }, { merge: true });
@@ -220,6 +241,7 @@ async function init() {
       document.getElementById('timer-reset-btn'),
       60,
       async state => {
+        if (readOnly) return;
         try {
           await setDoc(runRef, { timerState: state, lastWriter: clientId }, { merge: true });
           if (!draftMarked && state.startedAt !== null) {
@@ -244,6 +266,9 @@ async function init() {
   // read above) before these timer handles existed — lock their controls now.
   if (isSubmitted) timerHandles.forEach(h => h.setLocked(true));
 
+  // Public read-only: hide all edit chrome and lock the timers (display only).
+  if (readOnly) applyReadOnly();
+
   // Live sync — a single listener, set up after the timer handles exist so it
   // can call into them directly. We skip any snapshot that's just the echo of
   // our own write (`lastWriter === clientId`) and apply everything else —
@@ -255,55 +280,60 @@ async function init() {
       pendingFeed = [];
       restartTaken = false;
       isSubmitted = false;
-      allowEdits();
       document.getElementById('notes').value = '';
       refreshAll();
       updateTotal();
       timerHandles.forEach(h => h.reset());
-      
-      const btn = document.getElementById('submit-btn');
-      btn.textContent = 'Submit Score Sheet';
-      btn.disabled = false;
-      btn.classList.remove('submitted-btn', 'unlock-btn');
-      btn.onclick = submitRun;
-      if (unlockTimeout) clearTimeout(unlockTimeout);
-      
-      setSaveStatus('Score sheet reset.');
-      setTimeout(() => setSaveStatus(''), 2000);
+
+      // Edit-only UI reset — skipped in read-only (no submit button / edit controls).
+      if (!readOnly) {
+        allowEdits();
+        const btn = document.getElementById('submit-btn');
+        btn.textContent = 'Submit Score Sheet';
+        btn.disabled = false;
+        btn.classList.remove('submitted-btn', 'unlock-btn');
+        btn.onclick = submitRun;
+        if (unlockTimeout) clearTimeout(unlockTimeout);
+        setSaveStatus('Score sheet reset.');
+        setTimeout(() => setSaveStatus(''), 2000);
+      }
       return;
     }
-    
+
     const data = remoteSnap.data();
-    
-    // Check submission status from Firestore (important for multi-tab scenarios)
-    // Handle external submission (another tab submitted)
-    if (data.status === 'submitted' && !isSubmitted) {
-      isSubmitted = true;
-      disallowEdits();
-      const btn = document.getElementById('submit-btn');
-      btn.textContent = 'Submitted ✓';
-      btn.classList.add('submitted-btn');
-      setSaveStatus('Score sheet submitted.');
-      
-      // Show unlock button after 5 seconds
-      if (unlockTimeout) clearTimeout(unlockTimeout);
-      unlockTimeout = setTimeout(() => {
-        btn.textContent = '🔓 Unlock';
-        btn.disabled = false;
-        btn.classList.remove('submitted-btn');
-        btn.classList.add('unlock-btn');
-        btn.onclick = () => {
-          document.getElementById('unlock-confirm').hidden = false;
-        };
-      }, 5000);
-    } 
-    // Handle external unlock (another tab unlocked or reset)
-    else if (data.status !== 'submitted' && isSubmitted) {
-      // Call unlockForm to handle all button and state updates consistently
-      isSubmitted = false;
-      unlockFormWithoutPersist();
+
+    // Submit/unlock UI machinery is edit-mode only. In read-only we just display
+    // scores; the lock state and unlock button must never appear.
+    if (!readOnly) {
+      // Handle external submission (another tab submitted)
+      if (data.status === 'submitted' && !isSubmitted) {
+        isSubmitted = true;
+        disallowEdits();
+        const btn = document.getElementById('submit-btn');
+        btn.textContent = 'Submitted ✓';
+        btn.classList.add('submitted-btn');
+        setSaveStatus('Score sheet submitted.');
+
+        // Show unlock button after 5 seconds
+        if (unlockTimeout) clearTimeout(unlockTimeout);
+        unlockTimeout = setTimeout(() => {
+          btn.textContent = '🔓 Unlock';
+          btn.disabled = false;
+          btn.classList.remove('submitted-btn');
+          btn.classList.add('unlock-btn');
+          btn.onclick = () => {
+            document.getElementById('unlock-confirm').hidden = false;
+          };
+        }, 5000);
+      }
+      // Handle external unlock (another tab unlocked or reset)
+      else if (data.status !== 'submitted' && isSubmitted) {
+        // Call unlockForm to handle all button and state updates consistently
+        isSubmitted = false;
+        unlockFormWithoutPersist();
+      }
     }
-    
+
     if (data.lastWriter === clientId) return;
 
     if (data.scores) {
@@ -338,6 +368,14 @@ async function init() {
 
   document.getElementById('loading').hidden = true;
   document.getElementById('app').hidden = false;
+}
+
+// Public read-only presentation: a CSS class hides all edit chrome (footer/submit/
+// reset/notes, timer controls, aux timers) and neutralises the score controls, and we
+// lock the timers so they only display. Writes are already gated off (and rules-denied).
+function applyReadOnly() {
+  document.getElementById('app').classList.add('read-only');
+  (timerHandles || []).forEach(h => h.setLocked?.(true));
 }
 
 // ── RENDERING ─────────────────────────────────────────────────────────────────
@@ -818,6 +856,7 @@ function updateTotal() {
 // ── FIRESTORE ─────────────────────────────────────────────────────────────────
 
 function scheduleSave(feedEvent) {
+  if (readOnly) return;
   hasPendingSave = true;
 
   // Append-only: every scoring action — including an undo (which arrives here as its
@@ -861,6 +900,7 @@ async function attemptSave(status) {
 }
 
 async function saveRun(status) {
+  if (readOnly) return;
   // Snapshot-and-clear the append buffer before the (async) write so a scoring action
   // during the write goes to the next batch; restore on failure so it retries.
   const toAppend = pendingFeed;
@@ -916,6 +956,7 @@ async function saveRun(status) {
 }
 
 async function submitRun() {
+  if (readOnly) return;
   const btn = document.getElementById('submit-btn');
   btn.disabled = true;
   btn.textContent = 'Submitting…';
@@ -1028,6 +1069,7 @@ function unlockFormWithoutPersist() {
 }
 
 function unlockForm() {
+  if (readOnly) return;
   // User-initiated unlock: update UI and persist to Firestore
   isSubmitted = false;
   unlockFormWithoutPersist();

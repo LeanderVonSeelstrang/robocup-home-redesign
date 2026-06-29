@@ -144,6 +144,20 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
         </label>
         <div class="field-hint">Active competitions appear in the referee dashboard and live display.</div>
       </div>
+      <div class="field">
+        <label class="checkbox-label">
+          <input type="checkbox" id="comp-public-scoresheets">
+          <span>Public score sheets (read-only)</span>
+        </label>
+        <div class="field-hint">Let anyone open score sheets in read-only mode (no login). Editing stays referee-only — scores can never be changed by visitors.</div>
+      </div>
+      <div class="field">
+        <label class="checkbox-label">
+          <input type="checkbox" id="comp-show-results-qr">
+          <span>Show results QR on display</span>
+        </label>
+        <div class="field-hint">Add a QR code to the /display rotation linking to this competition's public results page.</div>
+      </div>
       <div class="field" id="comp-podium-section" hidden>
         <label>Podium <span class="hint">(legacy competitions without run data)</span></label>
         <div id="comp-podium-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px"></div>
