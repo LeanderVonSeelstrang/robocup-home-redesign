@@ -1,6 +1,6 @@
-import { db, ensureRefereeAuth } from './firebase.js';
+import { db, auth, ensureAuth, ensureRefereeAuth } from './firebase.js';
 import {
-  doc, getDoc, setDoc, deleteDoc, serverTimestamp
+  doc, collection, getDoc, setDoc, deleteDoc, onSnapshot, serverTimestamp, writeBatch
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
 
 // ── URL params ────────────────────────────────────────────────────────────────
@@ -15,16 +15,43 @@ const runId         = `${slotId}_${teamId}`;
 
 const runRef = doc(db, 'competitions', competitionId, 'runs', runId);
 
+// One id per page load. Every write we send tags itself with this id, so the
+// live listener can tell "this snapshot is just my own write echoing back"
+// apart from "this is a genuine change from another tab/device" — without
+// any time-based guessing, and without ever suppressing a real collaborator's
+// update.
+const clientId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
+
+// Track authenticated referee for audit logging
+let currentReferee = null;
+let isOnline = navigator.onLine;
+let hasPendingSave = false;
+let saveFailed = false;
+let isSubmitted = false;
+let unlockTimeout = null;
+// Public read-only mode: a non-referee opened the sheet while the competition's
+// `publicScoresheets` flag is on. The page renders live scores but performs ZERO
+// writes (also enforced server-side by firestore.rules) and hides all edit chrome.
+let readOnly = false;
+
 let testDef   = null;
 let scores    = {};   // live score state
-let feed      = [];   // [{label, delta, t, elapsed}] newest-first, written to Firestore for live display
+// Append-only Scoring Activity log. We only ever ADD events (an undo is its own
+// negative entry), so the persisted feed (runs/{id}/feed subcollection) is a faithful
+// trace that can never diverge from local state. This buffer holds events not yet
+// written to Firestore.
+let pendingFeed = [];  // [{label, delta, t, id, writer, elapsed?, kind?}]
 let saveTimer = null;
 
 // Tracks elapsed seconds on the main timer so feed entries can record a timestamp
 let getMainTimerElapsed = () => null;
 
-// Timer handles — stored so the reset button can reset all timers
-let timerHandles = [];
+// Named timer handles (not a positional array) so the live listener can
+// target the right one directly, regardless of whether this test has a main
+// time limit at all.
+let mainTimerHandle     = null;
+let restartTimerHandles = [];
+let timerHandles        = []; // flat list, used by the reset button only
 
 // Whether the run has been marked as draft — reset so the next timer start re-triggers it
 let draftMarked = false;
@@ -32,10 +59,63 @@ let draftMarked = false;
 // Restart timer state synced to Firestore for live display
 let restartTaken = false;
 
+let unsubscribeRunListener = null;
+
+// ── CONNECTION & OFFLINE STATUS ───────────────────────────────────────────────
+
+function updateConnectionStatus() {
+  const statusEl = document.getElementById('connection-status');
+  if (!statusEl) return;
+  
+  if (!isOnline) {
+    statusEl.innerHTML = '⚠ Offline – changes will sync when reconnected';
+    statusEl.style.display = 'block';
+    statusEl.classList.add('offline');
+  } else if (saveFailed) {
+    statusEl.innerHTML = '⚠ Save failed <button id="retry-save-btn" class="retry-btn">Retry</button>';
+    statusEl.style.display = 'block';
+    statusEl.classList.add('error');
+    document.getElementById('retry-save-btn').addEventListener('click', () => attemptSave('draft'));
+  } else {
+    statusEl.style.display = 'none';
+  }
+}
+
 // ── INIT ──────────────────────────────────────────────────────────────────────
 
 async function init() {
-  await ensureRefereeAuth();
+  // Decide the access mode WITHOUT forcing a login first.
+  // - An existing referee/admin session → full editor (unchanged behaviour).
+  // - Otherwise, if the competition allows public score sheets → anonymous read-only.
+  // - Otherwise → the referee login wall, exactly as before.
+  await auth.authStateReady();
+  if (auth.currentUser?.email) {
+    currentReferee = { email: auth.currentUser.email, uid: auth.currentUser.uid };
+  } else {
+    const compSnap = await getDoc(doc(db, 'competitions', competitionId));
+    if (compSnap.exists() && compSnap.data().publicScoresheets === true) {
+      readOnly = true;
+      await ensureAuth();   // anonymous session; never shows the login overlay
+      currentReferee = { email: null, uid: auth.currentUser?.uid || null };
+    } else {
+      const user = await ensureRefereeAuth();
+      currentReferee = { email: user.email, uid: user.uid };
+    }
+  }
+
+  // Set up online/offline detection
+  window.addEventListener('online', () => {
+    isOnline = true;
+    updateConnectionStatus();
+    if (saveFailed) {
+      // Try automatic retry on reconnect
+      setTimeout(() => attemptSave('draft'), 500);
+    }
+  });
+  window.addEventListener('offline', () => {
+    isOnline = false;
+    updateConnectionStatus();
+  });
 
   // Load test definition — competition-specific first, then static fallback
   const testDocSnap = await getDoc(doc(db, 'competitions', competitionId, 'tests', testId));
@@ -48,16 +128,21 @@ async function init() {
     });
   }
 
-  // Load existing run state if already started
+  // Load existing run state if already started. This single read is what
+  // makes "accidentally hit back / closed the tab, then reopened" resume
+  // correctly — including the timers — with no live listener required.
   const snap = await getDoc(runRef);
-  let alreadySubmitted = false;
+  let alreadySubmitted  = false;
+  let savedTimerState   = null;
+  let savedRestartState = null;
   if (snap.exists()) {
     const data = snap.data();
-    scores       = data.scores       || {};
-    feed         = data.feed         || [];
-    restartTaken = data.restartTaken || false;
+    scores            = data.scores       || {};
+    restartTaken      = data.restartTaken || false;
+    savedTimerState   = data.timerState   || null;
+    savedRestartState = data.restartState || null;
     document.getElementById('notes').value = data.notes || '';
-    if (data.status === 'submitted') { lockForm(); alreadySubmitted = true; }
+    if (data.status === 'submitted') { alreadySubmitted = true; if (!readOnly) lockForm(); }
   }
 
   renderScoreSheet();
@@ -77,22 +162,42 @@ async function init() {
     document.getElementById('reset-confirm').hidden = true;
   });
   document.getElementById('reset-confirm-ok').addEventListener('click', async () => {
+    if (readOnly) return;
     document.getElementById('reset-confirm').hidden = true;
     scores = {};
-    feed   = [];
+    pendingFeed = [];
     document.getElementById('notes').value = '';
     refreshAll();
     updateTotal();
     timerHandles.forEach(h => h.reset());
     draftMarked = false;
+    isSubmitted = false;
+    allowEdits(); // Ensure all controls are re-enabled
     try { await deleteDoc(runRef); } catch (e) { /* non-critical */ }
     setSaveStatus('Reset.');
     setTimeout(() => setSaveStatus(''), 2000);
+    // Reset submit button to normal state
+    const submitBtn = document.getElementById('submit-btn');
+    submitBtn.textContent = 'Submit Score Sheet';
+    submitBtn.disabled = false;
+    submitBtn.classList.remove('submitted-btn', 'unlock-btn');
+    submitBtn.onclick = submitRun;
+    if (unlockTimeout) clearTimeout(unlockTimeout);
   });
 
-  // Back link
+  // Unlock dialog handlers
+  document.getElementById('unlock-confirm-cancel').addEventListener('click', () => {
+    document.getElementById('unlock-confirm').hidden = true;
+  });
+  document.getElementById('unlock-confirm-ok').addEventListener('click', () => {
+    document.getElementById('unlock-confirm').hidden = true;
+    unlockForm();
+  });
+
+  // Back link — honour an explicit ?back= (e.g. opened from the team-scores page),
+  // otherwise fall back to the dashboard.
   const backLink = document.getElementById('back-link');
-  if (backLink) backLink.href = `${window.__siteBase || ''}/dashboard?competition=${competitionId}`;
+  if (backLink) backLink.href = p.get('back') || `${window.__siteBase || ''}/dashboard?competition=${competitionId}`;
 
   // Prev / Next team links — load slot to find team order
   const slotSnap = await getDoc(doc(db, 'competitions', competitionId, 'slots', slotId));
@@ -115,51 +220,162 @@ async function init() {
       const nextLink = document.getElementById('next-team-link');
       if (nextLink) { nextLink.href = teamLink(teams[idx + 1]); nextLink.hidden = false; }
     }
-
   }
 
   // Timers — main timer also syncs state to Firestore for live display
   // and marks the run as draft (activates dashboard dot) on first start.
   draftMarked = alreadySubmitted;
+
+  const restartSync = async state => {
+    if (readOnly) return;
+    if (state.startedAt !== null || state.elapsedBeforePause > 0) restartTaken = true;
+    try {
+      await setDoc(runRef, { restartState: state, restartTaken, lastWriter: clientId }, { merge: true });
+    } catch (_) { /* non-critical */ }
+  };
+
   if (testDef.timeLimit) {
-    const mainHandle = makeTimer(testDef.timeLimit * 60,
+    mainTimerHandle = makeTimer(testDef.timeLimit * 60,
       document.getElementById('timer'),
       document.getElementById('timer-start-btn'),
       document.getElementById('timer-reset-btn'),
       60,
       async state => {
+        if (readOnly) return;
         try {
-          await setDoc(runRef, { timerState: state }, { merge: true });
+          await setDoc(runRef, { timerState: state, lastWriter: clientId }, { merge: true });
           if (!draftMarked && state.startedAt !== null) {
             draftMarked = true;
             await saveRun('draft');
           }
         } catch (e) { /* non-critical */ }
-      }
+      },
+      savedTimerState
     );
-    getMainTimerElapsed = mainHandle.getElapsed;
-    const restartSync = async state => {
-      if (state.startedAt !== null || state.elapsedBeforePause > 0) restartTaken = true;
-      try { await setDoc(runRef, { restartState: state, restartTaken }, { merge: true }); } catch (_) {}
-    };
-    timerHandles = [
-      mainHandle,
-      makeTimer(30,  document.getElementById('timer-30s'),  document.getElementById('t30-start'), document.getElementById('t30-reset'),  5, restartSync),
-      makeTimer(60,  document.getElementById('timer-1min'), document.getElementById('t1m-start'), document.getElementById('t1m-reset'), 10, restartSync),
-    ];
-  } else {
-    const restartSync = async state => {
-      if (state.startedAt !== null || state.elapsedBeforePause > 0) restartTaken = true;
-      try { await setDoc(runRef, { restartState: state, restartTaken }, { merge: true }); } catch (_) {}
-    };
-    timerHandles = [
-      makeTimer(30,  document.getElementById('timer-30s'),  document.getElementById('t30-start'), document.getElementById('t30-reset'),  5, restartSync),
-      makeTimer(60,  document.getElementById('timer-1min'), document.getElementById('t1m-start'), document.getElementById('t1m-reset'), 10, restartSync),
-    ];
+    getMainTimerElapsed = mainTimerHandle.getElapsed;
   }
+
+  restartTimerHandles = [
+    makeTimer(30, document.getElementById('timer-30s'),  document.getElementById('t30-start'), document.getElementById('t30-reset'),  5, restartSync, savedRestartState),
+    makeTimer(60, document.getElementById('timer-1min'), document.getElementById('t1m-start'), document.getElementById('t1m-reset'), 10, restartSync, savedRestartState),
+  ];
+
+  timerHandles = mainTimerHandle ? [mainTimerHandle, ...restartTimerHandles] : restartTimerHandles;
+
+  // If the sheet was opened already-submitted, lockForm() ran (during the initial
+  // read above) before these timer handles existed — lock their controls now.
+  if (isSubmitted) timerHandles.forEach(h => h.setLocked(true));
+
+  // Public read-only: hide all edit chrome and lock the timers (display only).
+  if (readOnly) applyReadOnly();
+
+  // Live sync — a single listener, set up after the timer handles exist so it
+  // can call into them directly. We skip any snapshot that's just the echo of
+  // our own write (`lastWriter === clientId`) and apply everything else —
+  // i.e. a genuine change made from another tab/device — immediately.
+  unsubscribeRunListener = onSnapshot(runRef, (remoteSnap) => {
+    // Handle document deletion (reset from another tab)
+    if (!remoteSnap.exists()) {
+      scores = {};
+      pendingFeed = [];
+      restartTaken = false;
+      isSubmitted = false;
+      document.getElementById('notes').value = '';
+      refreshAll();
+      updateTotal();
+      timerHandles.forEach(h => h.reset());
+
+      // Edit-only UI reset — skipped in read-only (no submit button / edit controls).
+      if (!readOnly) {
+        allowEdits();
+        const btn = document.getElementById('submit-btn');
+        btn.textContent = 'Submit Score Sheet';
+        btn.disabled = false;
+        btn.classList.remove('submitted-btn', 'unlock-btn');
+        btn.onclick = submitRun;
+        if (unlockTimeout) clearTimeout(unlockTimeout);
+        setSaveStatus('Score sheet reset.');
+        setTimeout(() => setSaveStatus(''), 2000);
+      }
+      return;
+    }
+
+    const data = remoteSnap.data();
+
+    // Submit/unlock UI machinery is edit-mode only. In read-only we just display
+    // scores; the lock state and unlock button must never appear.
+    if (!readOnly) {
+      // Handle external submission (another tab submitted)
+      if (data.status === 'submitted' && !isSubmitted) {
+        isSubmitted = true;
+        disallowEdits();
+        const btn = document.getElementById('submit-btn');
+        btn.textContent = 'Submitted ✓';
+        btn.classList.add('submitted-btn');
+        setSaveStatus('Score sheet submitted.');
+
+        // Show unlock button after 5 seconds
+        if (unlockTimeout) clearTimeout(unlockTimeout);
+        unlockTimeout = setTimeout(() => {
+          btn.textContent = '🔓 Unlock';
+          btn.disabled = false;
+          btn.classList.remove('submitted-btn');
+          btn.classList.add('unlock-btn');
+          btn.onclick = () => {
+            document.getElementById('unlock-confirm').hidden = false;
+          };
+        }, 5000);
+      }
+      // Handle external unlock (another tab unlocked or reset)
+      else if (data.status !== 'submitted' && isSubmitted) {
+        // Call unlockForm to handle all button and state updates consistently
+        isSubmitted = false;
+        unlockFormWithoutPersist();
+      }
+    }
+
+    if (data.lastWriter === clientId) return;
+
+    if (data.scores) {
+      scores = data.scores;
+      refreshAll();
+      updateTotal();
+    }
+    // No feed sync needed: the scoresheet doesn't render the activity log, and the
+    // append-only runs/{id}/feed subcollection is the single source of truth for /display.
+
+    if (data.restartTaken !== undefined) restartTaken = data.restartTaken;
+
+    const notesEl = document.getElementById('notes');
+    if (data.notes !== undefined && notesEl.value !== data.notes) notesEl.value = data.notes;
+
+    if (data.timerState && mainTimerHandle) mainTimerHandle.restoreState(data.timerState);
+    if (data.restartState) restartTimerHandles.forEach(h => h.restoreState(data.restartState));
+  });
+
+  window.addEventListener('beforeunload', (e) => {
+    // Warn user if there are unsaved changes (debounce window active) — but not if submitted
+    if (!isSubmitted && hasPendingSave && saveTimer !== null) {
+      e.preventDefault();
+      e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+      return e.returnValue;
+    }
+  });
+
+  window.addEventListener('unload', () => {
+    if (unsubscribeRunListener) unsubscribeRunListener();
+  });
 
   document.getElementById('loading').hidden = true;
   document.getElementById('app').hidden = false;
+}
+
+// Public read-only presentation: a CSS class hides all edit chrome (footer/submit/
+// reset/notes, timer controls, aux timers) and neutralises the score controls, and we
+// lock the timers so they only display. Writes are already gated off (and rules-denied).
+function applyReadOnly() {
+  document.getElementById('app').classList.add('read-only');
+  (timerHandles || []).forEach(h => h.setLocked?.(true));
 }
 
 // ── RENDERING ─────────────────────────────────────────────────────────────────
@@ -227,7 +443,7 @@ function renderBoolean(item) {
     if (!scores[item.id]) clearSubScores(item);
     refreshBoolean(item);
     updateTotal();
-    scheduleSave({ label: item.label, delta: scores[item.id] ? item.points : -item.points });
+    scheduleSave({ label: item.label, delta: scores[item.id] ? item.points : -item.points, kind: scores[item.id] ? undefined : 'undo' });
   });
 
   return el;
@@ -283,7 +499,7 @@ function renderPenRow(pen, parentItem) {
       const ptsEl1 = itemEl(parentItem.id)?.querySelector('.item-pts');
       if (ptsEl1) ptsEl1.textContent = `+${itemPts(parentItem)}`;
       updateTotal();
-      scheduleSave({ label: pen.label, delta: e.target.checked ? -pen.points : pen.points });
+      scheduleSave({ label: pen.label, delta: e.target.checked ? -pen.points : pen.points, kind: e.target.checked ? undefined : 'undo' });
     });
   } else if (pen.type === 'percentage') {
     row.innerHTML = `
@@ -303,7 +519,7 @@ function renderPenRow(pen, parentItem) {
       if (ptsEl2) ptsEl2.textContent = `+${itemPts(parentItem)}`;
       updateTotal();
       const delta = Math.round((oldPct - pct) / 100 * parentItem.points);
-      scheduleSave(delta !== 0 ? { label: pen.label, delta } : undefined);
+      scheduleSave(delta !== 0 ? { label: pen.label, delta, kind: delta > 0 ? 'undo' : undefined } : undefined);
     });
   }
   return row;
@@ -320,7 +536,7 @@ function renderModRow(mod) {
   row.querySelector('input').addEventListener('change', e => {
     scores[mod.id] = e.target.checked;
     updateTotal();
-    scheduleSave({ label: mod.label, delta: e.target.checked ? mod.points : -mod.points });
+    scheduleSave({ label: mod.label, delta: e.target.checked ? mod.points : -mod.points, kind: e.target.checked ? undefined : 'undo' });
   });
   return row;
 }
@@ -372,7 +588,7 @@ function renderCount(item) {
       setCount(item, newCount);
       refreshCount(item);
       updateTotal();
-      scheduleSave({ label: item.label, delta: (newCount - oldCount) * item.points });
+      scheduleSave({ label: item.label, delta: (newCount - oldCount) * item.points, kind: newCount < oldCount ? 'undo' : undefined });
     };
     inp.addEventListener('blur', commit);
     inp.addEventListener('keydown', e => e.key === 'Enter' && commit());
@@ -382,7 +598,7 @@ function renderCount(item) {
     if (getCount(item) === 0) return;
     setCount(item, getCount(item) - 1);
     refreshCount(item); updateTotal();
-    scheduleSave({ label: item.label, delta: -item.points });
+    scheduleSave({ label: item.label, delta: -item.points, kind: 'undo' });
   });
 
   header.querySelector('.plus').addEventListener('click', () => {
@@ -463,7 +679,7 @@ function renderInstance(item, idx) {
         scores[item.id][idx][pen.id] = e.target.checked;
         updateInstanceSummary(item, idx);
         updateTotal();
-        scheduleSave({ label: pen.label, delta: e.target.checked ? -pen.points : pen.points });
+        scheduleSave({ label: pen.label, delta: e.target.checked ? -pen.points : pen.points, kind: e.target.checked ? undefined : 'undo' });
       });
     } else if (pen.type === 'percentage') {
       const pct = inst[pen.id] || 0;
@@ -483,7 +699,7 @@ function renderInstance(item, idx) {
         updateInstanceSummary(item, idx);
         updateTotal();
         const delta = Math.round((oldPct - v) / 100 * item.points);
-        scheduleSave(delta !== 0 ? { label: pen.label, delta } : undefined);
+        scheduleSave(delta !== 0 ? { label: pen.label, delta, kind: delta > 0 ? 'undo' : undefined } : undefined);
       });
     }
     penContainer.appendChild(penRow);
@@ -501,7 +717,7 @@ function renderInstance(item, idx) {
       scores[item.id][idx][mod.id] = e.target.checked;
       updateInstanceSummary(item, idx);
       updateTotal();
-      scheduleSave({ label: mod.label, delta: e.target.checked ? mod.points : -mod.points });
+      scheduleSave({ label: mod.label, delta: e.target.checked ? mod.points : -mod.points, kind: e.target.checked ? undefined : 'undo' });
     });
     penContainer.appendChild(modRow);
   }
@@ -543,7 +759,7 @@ function renderStandalonePenalty(item) {
     if (!(scores[item.id] > 0)) return;
     scores[item.id]--;
     refreshPenalty(item); updateTotal();
-    scheduleSave({ label: item.label, delta: item.points });   // removing a penalty restores points
+    scheduleSave({ label: item.label, delta: item.points, kind: 'undo' });   // removing a penalty restores points
   });
   header.querySelector('.plus').addEventListener('click', () => {
     if ((scores[item.id] || 0) >= max) return;
@@ -572,7 +788,7 @@ function renderInfo(item) {
   return el;
 }
 
-// ── REFRESH ALL (on initial load from Firestore) ──────────────────────────────
+// ── REFRESH ALL (on initial load / remote update from Firestore) ─────────────
 
 function refreshAll() {
   for (const section of testDef.sections) {
@@ -640,60 +856,118 @@ function updateTotal() {
 // ── FIRESTORE ─────────────────────────────────────────────────────────────────
 
 function scheduleSave(feedEvent) {
+  if (readOnly) return;
+  hasPendingSave = true;
+
+  // Append-only: every scoring action — including an undo (which arrives here as its
+  // own signed delta) — becomes a new entry. Nothing is ever removed. `kind: 'undo'`
+  // marks corrections (set by the handler) so the display can flag them.
   if (feedEvent && feedEvent.delta !== 0) {
-    // Cancel-out: if the most recent feed entry has the same label and the exact
-    // opposite delta, the user is simply undoing their last action — remove it
-    // instead of appending a new entry.
-    if (feed.length > 0
-        && feed[0].label === feedEvent.label
-        && feed[0].delta === -feedEvent.delta) {
-      feed = feed.slice(1);
-    } else {
-      const elapsed = getMainTimerElapsed();
-      const entry = { label: feedEvent.label, delta: feedEvent.delta, t: Date.now() };
-      if (elapsed !== null) entry.elapsed = elapsed;
-      feed = [entry, ...feed].slice(0, 30);
-    }
+    const elapsed = getMainTimerElapsed();
+    const t = Date.now();
+    const entry = { label: feedEvent.label, delta: feedEvent.delta, t };
+    if (elapsed !== null)     entry.elapsed = elapsed;
+    if (feedEvent.kind)       entry.kind    = feedEvent.kind;
+    entry.id     = `${t}_${Math.random().toString(36).slice(2)}`;
+    entry.writer = currentReferee?.email || 'unknown';
+    pendingFeed.push(entry);
   }
   setSaveStatus('Saving…');
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
-    await saveRun('draft');
+    await attemptSave('draft');
     saveTimer = null;
-  }, 1200);
+  }, 800);
+}
+
+// Serialize all writes through one chain so a draft save that is already in flight
+// finishes before the next save (e.g. submit) starts — otherwise two concurrent
+// merges race and the submit could land before a draft, leaving status as 'draft'.
+let saveChain = Promise.resolve();
+function serializeSave(status) {
+  const next = saveChain.then(() => saveRun(status), () => saveRun(status));
+  saveChain = next.catch(() => {});   // keep the chain alive even if a save fails
+  return next;
+}
+
+async function attemptSave(status) {
+  try {
+    await serializeSave(status);
+  } catch (err) {
+    saveFailed = true;
+    updateConnectionStatus();
+  }
 }
 
 async function saveRun(status) {
+  if (readOnly) return;
+  // Snapshot-and-clear the append buffer before the (async) write so a scoring action
+  // during the write goes to the next batch; restore on failure so it retries.
+  const toAppend = pendingFeed;
+  pendingFeed = [];
   try {
-    await setDoc(runRef, {
+    const updateData = {
       competitionId, slotId, teamId, teamName, testId,
       testName: testDef.name,
       scores,
-      feed,
       restartTaken,
       notes:      document.getElementById('notes').value,
       totalScore: calculateTotal(),
       status,
+      lastWriter: clientId,
+      lastWriterEmail: currentReferee?.email || 'unknown',
       updatedAt:  serverTimestamp(),
-      ...(status === 'draft' ? {} : { submittedAt: serverTimestamp() })
-    }, { merge: true });
+    };
+
+    if (status === 'submitted') {
+      updateData.submittedAt = serverTimestamp();
+      updateData.submittedBy = currentReferee?.email || 'unknown';
+    }
+
+    // Append-only activity log lives in the runs/{id}/feed subcollection — one
+    // immutable doc per event (keyed by its stable id, so writes are idempotent).
+    // Keeping it out of the run doc stops unrelated pages downloading the whole feed.
+    if (toAppend.length > 0) {
+      const batch = writeBatch(db);
+      batch.set(runRef, updateData, { merge: true });
+      for (const { id, ...rest } of toAppend) {
+        batch.set(doc(collection(runRef, 'feed'), id), rest);
+      }
+      await batch.commit();
+    } else {
+      await setDoc(runRef, updateData, { merge: true });
+    }
+
+    hasPendingSave = false;
+    saveFailed = false;
+    updateConnectionStatus();
+
     if (status === 'draft') {
       setSaveStatus('Saved');
       setTimeout(() => setSaveStatus(''), 2000);
     }
   } catch (err) {
+    pendingFeed = [...toAppend, ...pendingFeed];   // restore unsaved events for retry
     setSaveStatus('Save failed — check connection');
     console.error('Save error:', err);
+    saveFailed = true;
     throw err;
   }
 }
 
 async function submitRun() {
+  if (readOnly) return;
   const btn = document.getElementById('submit-btn');
   btn.disabled = true;
   btn.textContent = 'Submitting…';
+  // Cancel any pending debounced draft save. Otherwise it fires ~1.2s later, writes
+  // status back to 'draft', and the live listener reverts the button — which is why
+  // submit sometimes appeared to need a second press.
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  hasPendingSave = false;
   try {
-    await saveRun('submitted');
+    await serializeSave('submitted');   // waits for any in-flight draft save first
     lockForm();
   } catch {
     btn.disabled = false;
@@ -701,12 +975,111 @@ async function submitRun() {
   }
 }
 
+function disallowEdits() {
+  // Pause every timer and lock its controls (start/stop/reset) while submitted.
+  // render() re-derives the buttons' disabled state from this lock, so it can no
+  // longer re-enable them the way plain `btn.disabled = true` was being undone.
+  (timerHandles || []).forEach(h => { h.pause?.(); h.setLocked?.(true); });
+  
+  // Disable all score buttons (boolean, count, penalties, etc.)
+  const scoreButtons = document.querySelectorAll('.boolean-toggle, .count-btn, .penalty-check, .pct-input');
+  scoreButtons.forEach(btn => {
+    btn.disabled = true;
+    btn.style.pointerEvents = 'none';
+    btn.style.opacity = '0.6';
+  });
+  
+  // Disable reset button
+  const resetBtn = document.getElementById('reset-btn');
+  if (resetBtn) resetBtn.disabled = true;
+  
+  // Disable notes textarea
+  const notesTA = document.getElementById('notes');
+  if (notesTA) notesTA.disabled = true;
+  
+  // Mark as submitted for visual state
+  const app = document.getElementById('app');
+  if (app) app.classList.add('submitted-state');
+}
+
+function allowEdits() {
+  // Unlock every timer's controls (start/stop/reset)
+  (timerHandles || []).forEach(h => h.setLocked?.(false));
+  
+  // Enable all score buttons
+  const scoreButtons = document.querySelectorAll('.boolean-toggle, .count-btn, .penalty-check, .pct-input');
+  scoreButtons.forEach(btn => {
+    btn.disabled = false;
+    btn.style.pointerEvents = 'auto';
+    btn.style.opacity = '1';
+  });
+  
+  // Enable reset button
+  const resetBtn = document.getElementById('reset-btn');
+  if (resetBtn) resetBtn.disabled = false;
+  
+  // Enable notes textarea
+  const notesTA = document.getElementById('notes');
+  if (notesTA) notesTA.disabled = false;
+  
+  // Remove submitted visual state
+  const app = document.getElementById('app');
+  if (app) app.classList.remove('submitted-state');
+}
+
 function lockForm() {
+  isSubmitted = true;
+  disallowEdits();
+  
   const btn = document.getElementById('submit-btn');
-  btn.disabled = true;
   btn.textContent = 'Submitted ✓';
-  document.getElementById('notes').disabled = true;
+  btn.classList.add('submitted-btn');
+  
   setSaveStatus('Score sheet submitted.');
+  
+  // Show unlock button after 5 seconds
+  if (unlockTimeout) clearTimeout(unlockTimeout);
+  unlockTimeout = setTimeout(() => {
+    btn.textContent = '🔓 Unlock';
+    btn.disabled = false;
+    btn.classList.remove('submitted-btn');
+    btn.classList.add('unlock-btn');
+    btn.onclick = () => {
+      document.getElementById('unlock-confirm').hidden = false;
+    };
+  }, 5000);
+}
+
+function unlockFormWithoutPersist() {
+  // Updates UI state without persisting to Firestore
+  // Used both by user-initiated unlocks and listener-detected unlocks
+  allowEdits();
+  
+  const btn = document.getElementById('submit-btn');
+  btn.textContent = 'Submit Score Sheet';
+  btn.classList.remove('submitted-btn', 'unlock-btn');
+  btn.onclick = submitRun;
+  btn.disabled = false;
+  
+  setSaveStatus('Score sheet unlocked.');
+  setTimeout(() => setSaveStatus(''), 2000);
+  
+  // Clear any pending unlock button timeout
+  if (unlockTimeout) clearTimeout(unlockTimeout);
+}
+
+function unlockForm() {
+  if (readOnly) return;
+  // User-initiated unlock: update UI and persist to Firestore
+  isSubmitted = false;
+  unlockFormWithoutPersist();
+  
+  // Persist unlock to Firestore so other tabs see it
+  try {
+    setDoc(runRef, { status: 'draft', lastWriter: clientId, updatedAt: serverTimestamp() }, { merge: true });
+  } catch (err) {
+    console.error('Failed to persist unlock:', err);
+  }
 }
 
 function setSaveStatus(msg) {
@@ -730,15 +1103,75 @@ function playBeep(freq, duration) {
   } catch (_) {}
 }
 
-function makeTimer(initialSecs, displayEl, startBtn, resetBtn, warningAt, syncFn) {
-  if (!displayEl || !startBtn || !resetBtn) return { getElapsed: () => null };
+function makeTimer(initialSecs, displayEl, startBtn, resetBtn, warningAt, syncFn, savedState) {
+  if (!displayEl || !startBtn || !resetBtn) {
+    return { getElapsed: () => null, reset: () => {}, restoreState: () => {}, pause: () => {}, setLocked: () => {} };
+  }
   let remaining          = initialSecs;
   let interval           = null;
   let elapsedBeforePause = 0;   // seconds accumulated in previous runs
   let startedAtMs        = null; // Date.now() when last started
+  let locked             = false; // when the sheet is submitted: start/stop/reset disabled
 
   function fmt(s) {
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  }
+
+  function render() {
+    displayEl.textContent = fmt(remaining);
+    displayEl.classList.toggle('warning', interval !== null && remaining > 0 && remaining <= warningAt);
+    displayEl.classList.toggle('expired', remaining === 0);
+    startBtn.textContent = interval !== null ? '\u23F8\uFE0E' : '▶';
+    startBtn.disabled    = locked || remaining === 0;
+    resetBtn.disabled    = locked;
+  }
+
+  function tick() {
+    // Recompute remaining from wall-clock (elapsed since startedAt) instead of counting
+    // down locally. setInterval drifts/stalls when the tab is backgrounded; recomputing
+    // keeps this in lock-step with the live /display, which derives time the same way.
+    const prev = remaining;
+    const elapsed = elapsedBeforePause + Math.round((Date.now() - startedAtMs) / 1000);
+    remaining = Math.max(0, initialSecs - elapsed);
+    if (remaining === 0) {
+      elapsedBeforePause = initialSecs;
+      startedAtMs = null;
+      clearInterval(interval);
+      interval = null;
+      if (prev > 0) playBeep(440, 0.6);          // long low beep when first hitting 0
+    } else if (remaining <= 3 && remaining < prev) {
+      playBeep(880, 0.12);                        // short high beep at 3, 2, 1
+    }
+    render();
+  }
+
+  // Shared by initial restore (savedState) and live restore (restoreState):
+  // given a startedAt timestamp + prior elapsed seconds, recompute remaining
+  // and resume the interval if there's time left. Always uses this timer's
+  // own `initialSecs`, never a value from the incoming state object — that
+  // matters because the 30s and 60s timers share one synced `restartState`
+  // payload despite having different durations.
+  function resumeFrom(startedAt, elapsedBefore) {
+    elapsedBeforePause = elapsedBefore;
+    const elapsedSecs = Math.round((Date.now() - startedAt) / 1000);
+    remaining = Math.max(0, initialSecs - elapsedBeforePause - elapsedSecs);
+
+    if (remaining > 0) {
+      startedAtMs = Date.now();
+      interval = setInterval(tick, 1000);
+    } else {
+      startedAtMs = null;
+      elapsedBeforePause = initialSecs;
+    }
+  }
+
+  if (savedState) {
+    if (savedState.startedAt !== null) {
+      resumeFrom(savedState.startedAt, savedState.elapsedBeforePause || 0);
+    } else {
+      elapsedBeforePause = savedState.elapsedBeforePause || 0;
+      remaining = initialSecs - elapsedBeforePause;
+    }
   }
 
   // Returns total elapsed seconds so far (null if timer never started)
@@ -748,39 +1181,27 @@ function makeTimer(initialSecs, displayEl, startBtn, resetBtn, warningAt, syncFn
     return Math.min(initialSecs, elapsedBeforePause + live);
   }
 
-  function render() {
-    displayEl.textContent = fmt(remaining);
-    displayEl.classList.toggle('warning', interval !== null && remaining > 0 && remaining <= warningAt);
-    displayEl.classList.toggle('expired', remaining === 0);
-    startBtn.textContent = interval !== null ? '\u23F8\uFE0E' : '▶';
-    startBtn.disabled    = remaining === 0;
+  // Pause programmatically (used on submit/lock); no-op if already paused. Not gated
+  // by `locked` so submitting can still force a running timer to stop.
+  function pause() {
+    if (!interval) return;
+    elapsedBeforePause += Math.round((Date.now() - startedAtMs) / 1000);
+    remaining = Math.max(0, initialSecs - elapsedBeforePause);  // match the synced paused value
+    startedAtMs = null;
+    clearInterval(interval);
+    interval = null;
+    render();
+    if (syncFn) syncFn({ initialSecs, startedAt: null, elapsedBeforePause });
   }
 
   startBtn.addEventListener('click', () => {
+    if (locked) return;
     if (interval) {
-      // Pause — snapshot elapsed before clearing interval
-      elapsedBeforePause += Math.round((Date.now() - startedAtMs) / 1000);
-      startedAtMs = null;
-      clearInterval(interval);
-      interval = null;
-      render();
-      if (syncFn) syncFn({ initialSecs, startedAt: null, elapsedBeforePause });
+      pause();
     } else if (remaining > 0) {
       // Start / Resume
       startedAtMs = Date.now();
-      interval = setInterval(() => {
-        if (--remaining <= 0) {
-          remaining = 0;
-          elapsedBeforePause = initialSecs;
-          startedAtMs = null;
-          clearInterval(interval);
-          interval = null;
-          playBeep(440, 0.6);   // long low beep at 0
-        } else if (remaining <= 3) {
-          playBeep(880, 0.12);  // short high beep at 3, 2, 1
-        }
-        render();
-      }, 1000);
+      interval = setInterval(tick, 1000);
       render();
       if (syncFn) syncFn({ initialSecs, startedAt: startedAtMs, elapsedBeforePause });
     }
@@ -796,10 +1217,28 @@ function makeTimer(initialSecs, displayEl, startBtn, resetBtn, warningAt, syncFn
     if (syncFn) syncFn({ initialSecs, startedAt: null, elapsedBeforePause: 0 });
   }
 
-  resetBtn.addEventListener('click', doReset);
+  resetBtn.addEventListener('click', () => { if (locked) return; doReset(); });
 
   render();
-  return { getElapsed, reset: doReset };
+  return {
+    getElapsed,
+    reset: doReset,
+    pause,
+    setLocked: (v) => { locked = v; render(); },
+    restoreState: (newState) => {
+      if (!newState) return;
+      clearInterval(interval);
+      interval = null;
+      if (newState.startedAt !== null) {
+        resumeFrom(newState.startedAt, newState.elapsedBeforePause || 0);
+      } else {
+        elapsedBeforePause = newState.elapsedBeforePause || 0;
+        remaining = initialSecs - elapsedBeforePause;
+        startedAtMs = null;
+      }
+      render();
+    }
+  };
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────

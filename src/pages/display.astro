@@ -15,6 +15,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
   <div id="screen-comp" class="picker-screen" hidden>
     <div class="picker-wrap">
+      <a class="ref-menu-link" href={`${base}/referee`}>← Menu</a>
       <div class="picker-heading">Live Display</div>
       <div class="picker-sub">Select a competition</div>
       <div id="comp-list" class="picker-list"></div>
@@ -23,6 +24,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
   <div id="screen-arena" class="picker-screen" hidden>
     <div class="picker-wrap">
+      <a class="ref-menu-link" href={`${base}/referee`}>← Menu</a>
       <button class="picker-back" id="back-to-comp">← Back</button>
       <div class="picker-heading" id="arena-comp-name">—</div>
       <div class="picker-sub">Select an arena</div>
@@ -34,6 +36,17 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     <div id="waiting-arena-badge"></div>
     <div id="waiting-msg">Waiting for an active run…</div>
     <button class="picker-back" id="change-arena-btn">← Change Arena</button>
+  </div>
+
+  <!-- Shown for 10s after a run is submitted, before returning to the rotating overview -->
+  <div id="screen-final" hidden>
+    <div id="final-wrap">
+      <div id="final-label">Final Result</div>
+      <div id="final-test" class="final-test">—</div>
+      <div id="final-team" class="final-team">—</div>
+      <div id="final-score" class="final-score">0</div>
+      <div class="final-unit">points</div>
+    </div>
   </div>
 
   <div id="screen-idle" hidden>

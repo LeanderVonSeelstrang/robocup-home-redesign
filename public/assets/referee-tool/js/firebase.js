@@ -1,11 +1,13 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-app.js";
 import {
   initializeFirestore,
-  memoryLocalCache
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  connectFirestoreEmulator
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
 import {
   getAuth, signInAnonymously, signInWithEmailAndPassword,
-  signOut, onAuthStateChanged
+  signOut, onAuthStateChanged, connectAuthEmulator
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-auth.js";
 
 const firebaseConfig = {
@@ -19,11 +21,30 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
+// ── EMULATOR (localhost only) ── KEEP IN SYNC with src/lib/firebase.ts ──
+// localhost → local emulator, deployed → real DB. Decided automatically by hostname so
+// production (johaq.github.io) is never affected.
+const USE_EMULATOR =
+  typeof location !== 'undefined' &&
+  (location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+
+// Force long-polling against the emulator: the default WebChannel transport is slow and
+// flaky against the local Firestore emulator (causes "client is offline" + multi-second waits).
+// IndexedDB-backed cache with default LRU eviction (~40MB): bounds memory in a
+// long-lived tab (display/overlay left open all day) and avoids re-downloading the
+// whole dataset on each reload. Multi-tab manager because several referee-tool tabs
+// (display + overlay + dashboard) may be open on one machine.
 export const db = initializeFirestore(app, {
-  localCache: memoryLocalCache()
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+  ...(USE_EMULATOR ? { experimentalForceLongPolling: true } : {})
 });
 
 export const auth = getAuth(app);
+
+if (USE_EMULATOR) {
+  connectFirestoreEmulator(db, 'localhost', 8080);
+  connectAuthEmulator(auth, 'http://localhost:9099', { disableWarnings: true });
+}
 
 // Used by display, competition (public pages) — signs in anonymously if needed.
 // Must wait for authStateReady() so we don't overwrite an existing email session.

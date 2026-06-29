@@ -1,0 +1,152 @@
+/* Per-team score breakdown page */
+
+.ts-loading {
+  padding: 6rem 3rem;
+  text-align: center;
+  color: var(--muted);
+  font-family: 'Space Mono', monospace;
+  font-size: 0.9rem;
+}
+
+/* ── HEADER ───────────────────────────────────────────────────────── */
+.ts-header {
+  padding: 2rem 3rem 2rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.ts-sub {
+  margin-top: 0.4rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.ts-total-card {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-top: 1.5rem;
+  padding: 0.9rem 1.4rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.ts-total-label {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.ts-total {
+  font-family: 'Space Mono', monospace;
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.ts-total-note {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* ── BODY ─────────────────────────────────────────────────────────── */
+.ts-body {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 2.5rem 3rem 5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2.25rem;
+}
+
+.ts-empty {
+  color: var(--muted);
+  font-size: 14px;
+  padding: 2rem 0;
+  text-align: center;
+}
+
+/* ── TEST SECTION ─────────────────────────────────────────────────── */
+.ts-test-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.9rem;
+}
+
+.ts-test-name {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.ts-test-best {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.ts-runs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+/* ── RUN (score sheet) ROW ────────────────────────────────────────── */
+.ts-run {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.9rem 1.1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 10px;
+  text-decoration: none;
+  color: var(--text);
+  transition: border-color 0.18s ease, transform 0.18s ease;
+}
+
+.ts-run:hover { transform: translateX(2px); }
+
+/* Submitted = green accent edge; Running = amber edge (matches dashboard status colors) */
+.ts-run.is-submitted { border-left-color: var(--accent); }
+.ts-run.is-running   { border-left-color: #f0a500; }
+
+.ts-run-status {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+.ts-run-status.status-draft     { color: #f0a500;      background: rgba(240,165,0,0.12); }
+.ts-run-status.status-submitted { color: var(--accent); background: rgba(0,229,160,0.12); }
+
+.ts-run-score {
+  font-family: 'Space Mono', monospace;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+.ts-run-pts {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.ts-run-counts {
+  font-size: 0.74rem;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.ts-run-open {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 1.3rem;
+}

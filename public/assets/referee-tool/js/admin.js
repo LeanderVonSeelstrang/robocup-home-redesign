@@ -17,13 +17,21 @@ let showInactive           = false;  // competitions filter
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 
+// Admin access requires the `admin` custom claim — the same signal firestore.rules
+// checks (isAdmin()). Being signed in with an email is not enough: referees are
+// email users WITHOUT the claim, and must not reach the admin app.
+async function isAdminUser(user) {
+  if (!user?.email) return false;
+  try { return (await user.getIdTokenResult()).claims.admin === true; }
+  catch { return false; }
+}
+
 async function init() {
   // authStateReady() waits until persistent auth state is fully loaded,
   // avoiding a flash of the login screen when the admin reloads the page.
   await auth.authStateReady();
-  const user = auth.currentUser;
 
-  if (user?.email) {
+  if (await isAdminUser(auth.currentUser)) {
     showAdminApp();
     await showCompetitions();
   } else {
@@ -47,9 +55,19 @@ function showLoginScreen() {
     loginBtn.disabled = true;
     loginBtn.textContent = 'Signing in…';
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      showAdminApp();
-      await showCompetitions();
+      const cred = await signInWithEmailAndPassword(auth, email, password);
+      if (await isAdminUser(cred.user)) {
+        showAdminApp();
+        await showCompetitions();
+      } else {
+        // Valid credentials but not an admin (e.g. a referee account) — don't leave
+        // them in a half-signed-in state where every write would fail server-side.
+        await signOut(auth);
+        errorEl.textContent = 'This account does not have admin access.';
+        errorEl.hidden = false;
+        loginBtn.disabled = false;
+        loginBtn.textContent = 'Sign in';
+      }
     } catch (err) {
       errorEl.textContent = friendlyAuthError(err.code);
       errorEl.hidden = false;
@@ -373,6 +391,8 @@ function startEditCompetition(comp) {
   document.getElementById('comp-country').value    = comp.country    || '';
   document.getElementById('comp-year').value       = comp.year       || '';
   document.getElementById('comp-active').checked   = !!comp.active;
+  document.getElementById('comp-public-scoresheets').checked = !!comp.publicScoresheets;
+  document.getElementById('comp-show-results-qr').checked     = !!comp.showResultsQr;
   document.getElementById('comp-start-date').value = comp.startDate  || '';
   document.getElementById('comp-end-date').value   = comp.endDate    || '';
   document.getElementById('comp-timezone').value    = comp.timezone    || '';
@@ -434,6 +454,8 @@ async function saveCompetition() {
   const country   = document.getElementById('comp-country').value.trim();
   const year      = parseInt(document.getElementById('comp-year').value) || null;
   const active    = document.getElementById('comp-active').checked;
+  const publicScoresheets = document.getElementById('comp-public-scoresheets').checked;
+  const showResultsQr     = document.getElementById('comp-show-results-qr').checked;
   const startDate = document.getElementById('comp-start-date').value || null;
   const endDate   = document.getElementById('comp-end-date').value   || null;
   const timezone  = document.getElementById('comp-timezone').value.trim() || null;
@@ -443,7 +465,7 @@ async function saveCompetition() {
   if (!name) return;
 
   if (editingCompId) {
-    const update = { name, city, country, year, active, startDate, endDate, timezone, streamUrl, refereePin };
+    const update = { name, city, country, year, active, publicScoresheets, showResultsQr, startDate, endDate, timezone, streamUrl, refereePin };
     if (!document.getElementById('comp-podium-section').hidden) {
       update.podium = readPodiumFromForm();
     }
@@ -451,7 +473,7 @@ async function saveCompetition() {
   } else {
     const id = document.getElementById('comp-id').value.trim();
     if (!id) return;
-    await setDoc(doc(db, 'competitions', id), { id, name, city, country, year, active, startDate, endDate, timezone, streamUrl, refereePin, adminCreated: true });
+    await setDoc(doc(db, 'competitions', id), { id, name, city, country, year, active, publicScoresheets, showResultsQr, startDate, endDate, timezone, streamUrl, refereePin, adminCreated: true });
   }
 
   editingCompId = null;

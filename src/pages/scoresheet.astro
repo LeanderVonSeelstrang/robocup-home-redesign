@@ -27,6 +27,8 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   <div id="loading">Loading…</div>
 
   <div id="app" hidden>
+    <div id="connection-status" class="status-banner" style="display:none;"></div>
+    
     <header id="sheet-header">
       <a id="back-link" class="sheet-nav-link">← Back</a>
       <div id="header-left">
@@ -75,10 +77,12 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
     <footer id="sheet-footer">
       <textarea id="notes" placeholder="Notes for this run…"></textarea>
-      <div id="footer-actions">
-        <span id="save-status"></span>
-        <button id="reset-btn" class="btn-reset" title="Reset score sheet">↺ Reset</button>
-        <button id="submit-btn">Submit Score Sheet</button>
+      <div id="footer-bar">
+        <div id="save-status"></div>
+        <div id="footer-actions">
+          <button id="reset-btn" class="btn-reset" title="Reset score sheet">↺ Reset</button>
+          <button id="submit-btn">Submit Score Sheet</button>
+        </div>
       </div>
     </footer>
 
@@ -88,6 +92,16 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
         <div class="reset-confirm-actions">
           <button id="reset-confirm-ok" class="btn-reset-ok">Reset</button>
           <button id="reset-confirm-cancel" class="btn-reset-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="unlock-confirm" class="unlock-confirm" hidden>
+      <div class="unlock-confirm-box">
+        <p>Are you sure you want to unlock the score sheet and allow further edits?</p>
+        <div class="unlock-confirm-actions">
+          <button id="unlock-confirm-ok" class="btn-unlock-ok">Unlock</button>
+          <button id="unlock-confirm-cancel" class="btn-unlock-cancel">Cancel</button>
         </div>
       </div>
     </div>

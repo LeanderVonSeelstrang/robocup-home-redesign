@@ -1,0 +1,30 @@
+---
+import RefLayout from '../layouts/RefLayout.astro';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<RefLayout title="Team Scores — RoboCup@Home">
+  <link slot="head" rel="stylesheet" href={`${base}/assets/referee-tool/css/team-scores.css`} />
+
+  <div class="ref-menu-bar"><a class="ref-menu-link" href={`${base}/referee`}>← Menu</a></div>
+
+  <div id="ts-loading" class="ts-loading">Loading…</div>
+
+  <div id="ts-page" hidden>
+    <div class="ts-header">
+      <a id="ts-back-link" href="#" class="back-link">← Standings</a>
+      <div class="page-tag">Team Scores</div>
+      <h1 class="page-title" id="ts-team-name"></h1>
+      <div class="ts-sub" id="ts-comp-name"></div>
+
+      <div class="ts-total-card">
+        <span class="ts-total-label">Competition total</span>
+        <span class="ts-total" id="ts-total">0</span>
+        <span class="ts-total-note">best submitted run per test, summed</span>
+      </div>
+    </div>
+
+    <div class="ts-body" id="ts-body"></div>
+  </div>
+
+  <script is:inline type="module" src={`${base}/assets/referee-tool/js/team-scores.js`}></script>
+</RefLayout>

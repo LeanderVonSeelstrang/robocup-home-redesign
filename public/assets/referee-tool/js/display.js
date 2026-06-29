@@ -1,7 +1,8 @@
 import { db, ensureAuth } from './firebase.js';
 import {
-  collection, doc, getDoc, getDocs, onSnapshot
+  collection, doc, getDoc, getDocs, onSnapshot, query, orderBy, limit
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
+import qrcode from './vendor/qrcode.js';
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
 
@@ -14,12 +15,20 @@ let currentRuns      = {};     // runId  → run data
 let activeRunId      = null;
 let unsubSlots       = null;
 let unsubRuns        = null;
+let unsubComp        = null;
+let unsubFeed        = null;   // live listener on the active run's feed subcollection
+let feedRunId        = null;   // which run unsubFeed is currently following
+let finalResultSecs  = 10;     // how long the post-submit "Final Result" card shows
+let showResultsQr    = false;  // admin flag: include a /results QR slide in the rotation
 
 // Live-display state
 let timerInterval = null;
 let timerState    = null;
 let lastScore     = null;
 let lastFeedLen   = 0;
+
+// Final-result screen state — truthy while the 5s "Final Result" card is showing
+let finalResultTimer = null;
 
 // Idle rotation state
 let idleInterval      = null;
@@ -31,10 +40,19 @@ const IDLE_SLIDE_SECS = 9;
 
 function showScreen(id) {
   for (const el of document.querySelectorAll(
-    '#screen-loading, #screen-comp, #screen-arena, #screen-waiting, #screen-idle, #screen-live'
+    '#screen-loading, #screen-comp, #screen-arena, #screen-waiting, #screen-idle, #screen-live, #screen-final'
   )) {
     el.hidden = el.id !== id;
   }
+}
+
+// "10:00" → "10:00 AM" — disambiguates a scheduled start time from a countdown.
+function to12h(t) {
+  if (!t) return '—';
+  const [h, m] = t.split(':').map(Number);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12  = h % 12 || 12;
+  return `${h12}:${String(m ?? 0).padStart(2, '0')} ${ampm}`;
 }
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
@@ -176,6 +194,14 @@ function selectArena(arena) {
 
   showScreen('screen-waiting');
 
+  // Keep competition-level display settings in sync (set in the admin tools).
+  unsubComp = onSnapshot(doc(db, 'competitions', selectedCompId), snap => {
+    const data = snap.data() || {};
+    const v = Number(data.finalResultSecs);
+    finalResultSecs = Number.isFinite(v) && v >= 0 ? v : 10;
+    showResultsQr   = data.showResultsQr === true;
+  });
+
   // Subscribe to slots — we need these to know which slots belong to this arena
   unsubSlots = onSnapshot(
     collection(db, 'competitions', selectedCompId, 'slots'),
@@ -200,12 +226,16 @@ function selectArena(arena) {
 function teardownListeners() {
   if (unsubSlots) { unsubSlots(); unsubSlots = null; }
   if (unsubRuns)  { unsubRuns();  unsubRuns  = null; }
+  if (unsubComp)  { unsubComp();  unsubComp  = null; }
+  if (unsubFeed)  { unsubFeed();  unsubFeed  = null; feedRunId = null; }
   clearInterval(timerInterval);
   timerInterval = null;
   timerState    = null;
   clearInterval(restartInterval);
   restartInterval = null;
   restartState    = null;
+  clearTimeout(finalResultTimer);
+  finalResultTimer = null;
   stopIdleRotation();
 }
 
@@ -224,6 +254,22 @@ function checkActiveRun() {
 
   const newActiveRunId = candidates[0]?.[0] ?? null;
 
+  // The run we were showing live just dropped out of the draft list. If that's because
+  // it was submitted, flash its final result (for the configured duration) before moving on.
+  // A duration of 0 disables the final card entirely — fall through to the next run / idle.
+  if (activeRunId && newActiveRunId !== activeRunId && finalResultSecs > 0
+      && currentRuns[activeRunId]?.status === 'submitted') {
+    showFinalResult(currentRuns[activeRunId]);
+    activeRunId = newActiveRunId;
+    return;
+  }
+
+  // Hold on the final-result screen until its timer elapses.
+  if (finalResultTimer) {
+    activeRunId = newActiveRunId;
+    return;
+  }
+
   if (newActiveRunId !== activeRunId) {
     activeRunId   = newActiveRunId;
     lastScore     = null;
@@ -239,11 +285,13 @@ function checkActiveRun() {
   if (activeRunId) {
     stopIdleRotation();
     renderRun(currentRuns[activeRunId]);
+    subscribeFeed(activeRunId);
     showScreen('screen-live');
     return;
   }
 
   // No active run — idle rotation
+  subscribeFeed(null);
   const slides = buildIdleSlides();
   if (slides.length > 0) {
     startIdleRotation(slides);
@@ -251,6 +299,24 @@ function checkActiveRun() {
     stopIdleRotation();
     showScreen('screen-waiting');
   }
+}
+
+// Show a run's final result for the configured duration, then re-evaluate (overview or next run).
+function showFinalResult(run) {
+  stopIdleRotation();
+  clearInterval(timerInterval);   timerInterval   = null;
+  clearInterval(restartInterval); restartInterval = null;
+
+  document.getElementById('final-test').textContent  = run.testName || run.testId || '—';
+  document.getElementById('final-team').textContent  = run.teamName || '—';
+  document.getElementById('final-score').textContent = run.totalScore ?? 0;
+  showScreen('screen-final');
+
+  clearTimeout(finalResultTimer);
+  finalResultTimer = setTimeout(() => {
+    finalResultTimer = null;
+    checkActiveRun();
+  }, finalResultSecs * 1000);
 }
 
 // ── IDLE ROTATION ─────────────────────────────────────────────────────────────
@@ -300,7 +366,19 @@ function buildIdleSlides() {
 
   if (nextSlot) slides.push({ type: 'nextup', slot: nextSlot });
 
+  // QR to the public results page (admin-enabled) — lets the audience scan in.
+  if (showResultsQr) slides.push({ type: 'qr' });
+
   return slides;
+}
+
+// Build an <svg> QR for the given text (vendored qrcode-generator). The dark modules
+// render on a transparent background, so the slide places it on a white card.
+function qrSvg(text) {
+  const qr = qrcode(0, 'M');   // auto version, error-correction level M
+  qr.addData(text);
+  qr.make();
+  return qr.createSvgTag({ cellSize: 8, margin: 4, scalable: true });
 }
 
 function startIdleRotation(slides) {
@@ -356,9 +434,25 @@ function renderIdleSlide(animate) {
     titleEl.textContent = 'Up Next';
     bodyEl.innerHTML = `
       <div class="idle-nextup">
-        <div class="idle-nextup-time">${slot.time || '—'}</div>
+        <div class="idle-nextup-label">Starts at</div>
+        <div class="idle-nextup-time">${to12h(slot.time)}</div>
         <div class="idle-nextup-test">${testName}</div>
         ${teams ? `<div class="idle-nextup-teams">${teams}</div>` : ''}
+      </div>
+    `;
+  } else if (slide.type === 'qr') {
+    const url = `${location.origin}${window.__siteBase || ''}/results?id=${selectedCompId}`;
+    titleEl.textContent = 'Live Results';
+    let qrHtml;
+    try {
+      qrHtml = `<div class="idle-qr-code">${qrSvg(url)}</div>`;
+    } catch (_) {
+      qrHtml = `<div class="idle-qr-fallback">${url}</div>`;   // never break the rotation
+    }
+    bodyEl.innerHTML = `
+      <div class="idle-qr">
+        ${qrHtml}
+        <div class="idle-qr-cap">Scan to explore the live scoreboard</div>
       </div>
     `;
   }
@@ -412,7 +506,28 @@ function renderRun(data) {
   updateScore(data.totalScore ?? 0);
   updateTimerState(data.timerState ?? null);
   updateRestartState(data.restartState ?? null, data.restartTaken ?? false);
-  updateFeed(data.feed ?? []);
+  // The feed comes from its own subcollection listener (subscribeFeed), not the run doc.
+}
+
+// Follow the active run's append-only feed (runs/{id}/feed). Kept as its own scoped
+// listener so unrelated run-doc updates don't re-fetch the feed, and the feed isn't
+// downloaded for every run. Re-subscribes only when the active run actually changes.
+function subscribeFeed(runId) {
+  if (runId === feedRunId) return;
+  if (unsubFeed) { unsubFeed(); unsubFeed = null; }
+  feedRunId = runId;
+  if (!runId) { updateFeed([]); return; }
+
+  const feedRef = collection(db, 'competitions', selectedCompId, 'runs', runId, 'feed');
+  unsubFeed = onSnapshot(query(feedRef, orderBy('t', 'desc'), limit(30)), snap => {
+    if (!snap.empty) {
+      updateFeed(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } else {
+      // Backward-compat: older runs stored the feed inline as `feedEntries`.
+      const legacy = currentRuns[runId]?.feedEntries;
+      updateFeed(legacy ? [...legacy].sort((a, b) => (b.t || 0) - (a.t || 0)).slice(0, 30) : []);
+    }
+  });
 }
 
 // ── SCORE ─────────────────────────────────────────────────────────────────────
@@ -545,10 +660,14 @@ function updateFeed(feed) {
     else if (idx >= 3)        item.classList.add('feed-oldest');
     else if (idx >= 1)        item.classList.add('feed-old');
 
+    // Corrections (an undone/removed action) are tagged so the audience can tell them
+    // apart from a real penalty. The signed delta + colour still show the point change.
+    const isUndo   = entry.kind === 'undo';
+    if (isUndo) item.classList.add('feed-undo');
     const sign     = entry.delta >= 0 ? '+' : '';
     const deltaCls = entry.delta >= 0 ? 'positive' : 'negative';
     item.innerHTML = `
-      <span class="feed-label">${entry.label}</span>
+      <span class="feed-label">${isUndo ? '<span class="feed-undo-mark">↩</span> ' : ''}${entry.label}</span>
       <span class="feed-delta ${deltaCls}">${sign}${entry.delta}</span>
     `;
     list.appendChild(item);

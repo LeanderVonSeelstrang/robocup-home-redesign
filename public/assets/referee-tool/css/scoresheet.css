@@ -13,6 +13,45 @@ body {
   flex-direction: column;
 }
 
+/* ── STATUS BANNERS ─────────────────────────────────────────────── */
+
+.status-banner {
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  border-bottom: 1px solid var(--border);
+  display: none;
+  position: sticky;
+  top: 0;
+  z-index: 99;
+}
+
+.status-banner.offline {
+  background: #fff3cd;
+  color: #856404;
+  border-bottom-color: #ffc107;
+}
+
+.status-banner.error {
+  background: #f8d7da;
+  color: #721c24;
+  border-bottom-color: #f5c6cb;
+}
+
+.status-banner .retry-btn {
+  margin-left: 8px;
+  padding: 4px 8px;
+  background: rgba(0,0,0,0.1);
+  border: 1px solid rgba(0,0,0,0.2);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.status-banner .retry-btn:hover {
+  background: rgba(0,0,0,0.2);
+}
+
 /* ── HEADER ─────────────────────────────────────────────────────── */
 
 #sheet-header {
@@ -446,6 +485,10 @@ body {
   border-top: 1px solid rgba(255,255,255,0.08);
   display: flex;
   flex-direction: column;
+  /* Override the GLOBAL `footer { align-items: center; justify-content: space-between }`
+     rule in styles.css — without this, #footer-bar shrinks to content and centers. */
+  align-items: stretch;
+  justify-content: flex-start;
   gap: 12px;
 }
 
@@ -464,17 +507,47 @@ body {
 
 #notes:focus { outline: none; border-color: var(--accent); }
 
-#footer-actions {
-  display: flex;
-  justify-content: space-between;
+/* Bottom bar (same row as the buttons): the feedback message takes the whole left side,
+   aligned with the notes box's left edge; the buttons sit at the right. The message is
+   `flex: 1` + `min-width: 0` + clip, so a longer/shorter message resizes within its own
+   space and never moves the buttons. */
+/* Three sections: left = message, center = buttons, right = empty balancer. */
+#footer-bar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 12px;
 }
 
-#save-status { font-size: 0.85rem; color: var(--muted); flex: 1; }
+#footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+/* Bottom-left, single line. padding-left matches the notes textarea's border (1px) +
+   inner padding (12px) so the message text lines up with the "Notes for this run…" text,
+   not just the box edge. min-width:0 + clip means it never pushes the buttons. */
+/* Left section. padding-left = textarea border (1px) + padding (12px) so the text lines
+   up with the "Notes for this run…" text. min-width:0 lets it clip instead of pushing. */
+#save-status {
+  min-width: 0;
+  padding-left: 13px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 #submit-btn {
   padding: 14px 32px;
+  /* Sized to the longest label ("Submit Score Sheet") so it stays the same width
+     when the text becomes "Submitting…", "Submitted ✓" or "🔓 Unlock". */
+  min-width: 15rem;
+  text-align: center;
   background: var(--accent);
   color: #000;
   border: none;
@@ -560,6 +633,111 @@ body {
 #submit-btn:active { filter: brightness(0.9); }
 #submit-btn:disabled { background: var(--muted); color: var(--bg); cursor: default; }
 
+#submit-btn.submitted-btn {
+  background: rgba(255,255,255,0.1);
+  color: var(--text);
+  cursor: default;
+  border: 1px solid rgba(255,255,255,0.15);
+}
+
+#submit-btn.unlock-btn {
+  background: rgba(255,200,0,0.15);
+  color: #ffc107;
+  border: 1px solid rgba(255,200,0,0.3);
+  cursor: pointer;
+}
+
+#submit-btn.unlock-btn:hover {
+  background: rgba(255,200,0,0.25);
+  border-color: rgba(255,200,0,0.5);
+}
+
+/* ── SUBMITTED STATE ─────────────────────────────────────────────── */
+
+#app.submitted-state {
+  --accent-muted: rgba(255,255,255,0.4);
+}
+
+#app.submitted-state .boolean-toggle {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+#app.submitted-state .count-btn {
+  cursor: not-allowed;
+}
+
+#app.submitted-state #sheet-header {
+  border-bottom-color: rgba(255,255,255,0.15);
+}
+
+#app.submitted-state .score-section {
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+#app.submitted-state #notes {
+  background: rgba(255,255,255,0.02);
+  opacity: 0.7;
+}
+
+/* ── UNLOCK CONFIRM OVERLAY ──────────────────────────────────────── */
+
+.unlock-confirm {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+
+.unlock-confirm-box {
+  background: var(--surface);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: var(--radius);
+  padding: 28px 24px 20px;
+  max-width: 340px;
+  width: 90%;
+  text-align: center;
+}
+
+.unlock-confirm-box p {
+  margin: 0 0 20px;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.unlock-confirm-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.btn-unlock-ok {
+  padding: 10px 24px;
+  background: #ffc107;
+  color: #000;
+  border: none;
+  border-radius: var(--radius);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-unlock-cancel {
+  padding: 10px 24px;
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
 /* ── LOADING / ERROR ─────────────────────────────────────────────── */
 
 #loading {
@@ -571,4 +749,33 @@ body {
   color: var(--muted);
   flex-direction: column;
   gap: 12px;
+}
+
+/* ── PUBLIC READ-ONLY MODE ──────────────────────────────────────────────────
+   A non-referee viewing the sheet (competition `publicScoresheets` flag on).
+   Hide every edit affordance and make the score controls non-interactive, so it
+   reads as a static score breakdown rather than the editor. Writes are also
+   blocked in JS and denied by firestore.rules — this is presentation only. */
+#app.read-only #sheet-footer,
+#app.read-only #aux-timers,
+#app.read-only .timer-ctrl-btns,
+#app.read-only .count-controls .count-btn { display: none; }
+
+#app.read-only .boolean-toggle,
+#app.read-only .penalty-check,
+#app.read-only .modifier-check,
+#app.read-only .count-value,
+#app.read-only .pct-input { pointer-events: none; }
+
+/* Render the percentage penalty field as static text (no editor chrome). */
+#app.read-only .pct-input {
+  -moz-appearance: textfield;
+  appearance: textfield;
+  background: transparent;
+  border: none;
+}
+#app.read-only .pct-input::-webkit-outer-spin-button,
+#app.read-only .pct-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }

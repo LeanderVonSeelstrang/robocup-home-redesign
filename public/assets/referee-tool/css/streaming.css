@@ -1,0 +1,358 @@
+:root {
+  --radius: 12px;
+  --penalty: #ff6b6b;
+  --pill-bg: rgba(13, 17, 23, 0.72);
+  --pill-border: rgba(255, 255, 255, 0.10);
+}
+
+* { box-sizing: border-box; }
+
+/* OBS keys out the page background — must be fully transparent, not the site's
+   dark --bg. The global styles.css sets body { background: var(--bg) }, so we
+   override it here (this stylesheet loads after styles.css). */
+html, body {
+  background: transparent !important;
+  margin: 0;
+  font-family: 'DM Sans', sans-serif;
+  color: var(--text);
+  overflow: hidden;
+}
+
+/* ── OVERLAY ROOT ─────────────────────────────────────────────────────────── */
+
+#overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;          /* never intercept clicks in OBS */
+}
+
+/* Shared "pill" backing so blocks stay readable over any video. */
+.ov-pill {
+  position: fixed;
+  background: var(--pill-bg);
+  border: 1px solid var(--pill-border);
+  border-radius: 14px;
+  padding: 14px 20px;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  max-width: 38vw;
+}
+
+.ov-pill-unit {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+
+/* ── CORNER PLACEMENT ─────────────────────────────────────────────────────── */
+
+/* Top-left: test name */
+#ov-test {
+  top: 26px;
+  left: 30px;
+  font-family: 'Space Mono', monospace;
+  font-size: clamp(0.9rem, 1.5vw, 1.25rem);
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Top-right: team name */
+#ov-team {
+  top: 26px;
+  right: 30px;
+  font-size: clamp(1.1rem, 2vw, 1.8rem);
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+}
+
+/* Bottom-left: time · bottom-right: score — both stacked value + unit */
+.ov-stat {
+  bottom: 30px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 8.5rem;
+}
+
+#ov-time  { left: 30px; }
+#ov-score { right: 30px; }
+
+.ov-stat-value {
+  font-family: 'Space Mono', monospace;
+  font-size: clamp(2.4rem, 4.5vw, 3.6rem);
+  font-weight: 700;
+  line-height: 1;
+  color: var(--accent);
+  transition: color 0.3s;
+}
+
+/* Timer state colours */
+#ov-time.expired .ov-stat-value { color: var(--penalty); }
+#ov-time.paused  .ov-stat-value { color: var(--muted); }
+
+/* Score flash on change */
+@keyframes flash-positive {
+  0%   { color: #fff; transform: scale(1.08); }
+  100% { color: var(--accent); transform: scale(1); }
+}
+@keyframes flash-negative {
+  0%   { color: var(--penalty); transform: scale(1.08); }
+  100% { color: var(--accent); transform: scale(1); }
+}
+.ov-stat-value.flash-positive { animation: flash-positive 0.5s ease-out forwards; }
+.ov-stat-value.flash-negative { animation: flash-negative 0.5s ease-out forwards; }
+
+/* ── FEED (bottom-center) ─────────────────────────────────────────────────── */
+
+#ov-feed {
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(34vw, 520px);
+  max-width: none;
+  padding: 12px 16px;
+}
+
+#ov-feed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.feed-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--pill-border);
+  border-radius: 8px;
+}
+
+.feed-item.feed-new {
+  animation: feed-in 0.3s ease-out forwards;
+  border-color: rgba(0, 229, 160, 0.25);
+}
+@keyframes feed-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.feed-item.feed-old    { opacity: 0.5; }
+.feed-item.feed-oldest { opacity: 0.28; }
+
+.feed-label {
+  flex: 1;
+  font-size: clamp(0.85rem, 1.2vw, 1.05rem);
+  color: var(--text);
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feed-delta {
+  font-family: 'Space Mono', monospace;
+  font-size: clamp(0.9rem, 1.4vw, 1.15rem);
+  font-weight: 700;
+  flex-shrink: 0;
+  min-width: 48px;
+  text-align: right;
+}
+.feed-delta.positive { color: var(--accent); }
+.feed-delta.negative { color: var(--penalty); }
+
+/* Corrections (undone actions) — muted, struck through, with a ↩ marker. */
+.feed-item.feed-undo .feed-label { color: var(--muted); text-decoration: line-through; }
+.feed-item.feed-undo .feed-delta { opacity: 0.7; }
+.feed-undo-mark {
+  display: inline-block;
+  font-family: 'Space Mono', monospace;
+  color: var(--muted);
+  margin-right: 2px;
+}
+
+/* ── FINAL FLASH (bottom-center, replaces feed ~10s after submit) ─────────── */
+
+#ov-final {
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 18px 32px;
+  text-align: center;
+  /* Dedicated keyframes: must keep the translateX(-50%) centering, otherwise the
+     animation's transform would clobber it and leave the card shifted right. */
+  animation: ov-final-in 0.3s ease-out forwards;
+}
+
+@keyframes ov-final-in {
+  from { opacity: 0; transform: translate(-50%, -8px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
+#ov-final-label {
+  font-family: 'Space Mono', monospace;
+  font-size: clamp(0.75rem, 1.3vw, 1rem);
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--accent);
+}
+
+#ov-final-team {
+  font-size: clamp(1rem, 1.8vw, 1.5rem);
+  font-weight: 600;
+  color: var(--text);
+}
+
+#ov-final-score {
+  font-family: 'Space Mono', monospace;
+  font-size: clamp(2.6rem, 5vw, 4.2rem);
+  font-weight: 700;
+  line-height: 1;
+  color: var(--accent);
+}
+
+/* ── SETUP PICKER (opaque — used in a normal browser, not in OBS) ─────────── */
+
+#picker {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  overflow-y: auto;
+}
+
+.pk-wrap {
+  width: 100%;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pk-heading {
+  font-family: 'Space Mono', monospace;
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.pk-sub {
+  font-size: 1rem;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.pk-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pk-item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  transition: border-color 0.15s, color 0.15s;
+  font-size: 1.05rem;
+  font-weight: 500;
+  color: var(--text);
+  text-align: left;
+  width: 100%;
+}
+.pk-item:hover { border-color: var(--accent); color: var(--accent); }
+
+.pk-item-sub  { font-size: 0.85rem; color: var(--muted); font-weight: 400; }
+.pk-item-arrow { color: var(--muted); font-size: 1.2rem; flex-shrink: 0; }
+.pk-empty { color: var(--muted); padding: 12px 0; }
+
+.pk-back,
+.pk-open-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  font-family: 'Space Mono', monospace;
+  font-size: 0.75rem;
+  padding: 7px 14px;
+  cursor: pointer;
+  align-self: flex-start;
+  text-decoration: none;
+  transition: color 0.15s, border-color 0.15s;
+}
+.pk-back:hover,
+.pk-open-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+/* OBS URL helper */
+#pk-obs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+}
+
+.pk-obs-label {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+
+.pk-obs-row { display: flex; gap: 8px; }
+
+.pk-obs-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: 'Space Mono', monospace;
+  font-size: 0.82rem;
+  padding: 9px 12px;
+}
+
+.pk-obs-copy {
+  background: var(--accent);
+  border: none;
+  border-radius: 8px;
+  color: #07131f;
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding: 9px 16px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.pk-obs-hint {
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 1.5;
+}

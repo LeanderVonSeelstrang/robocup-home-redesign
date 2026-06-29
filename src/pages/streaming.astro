@@ -1,0 +1,77 @@
+---
+import RefLayout from '../layouts/RefLayout.astro';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<RefLayout
+  title="Stream Overlay — RoboCup@Home"
+  fonts="Space+Mono:wght@400;700&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400"
+  cacheControl={true}
+>
+  <link slot="head" rel="stylesheet" href={`${base}/assets/referee-tool/css/streaming.css`} />
+
+  <!-- ── SETUP PICKER ─────────────────────────────────────────────────────
+       Only shown when ?competition / ?arena are missing. Lets you pick a
+       competition + arena in a normal browser, then copy the resulting
+       fixed URL into an OBS Browser source (the overlay itself never needs
+       clicking). -->
+  <div id="picker" hidden>
+    <div class="pk-wrap">
+      <a class="pk-back" href={`${base}/referee`}>← Menu</a>
+      <div class="pk-heading">Stream Overlay</div>
+      <div class="pk-sub" id="pk-sub">Select a competition</div>
+
+      <div id="pk-comp-list" class="pk-list"></div>
+
+      <div id="pk-arena-section" hidden>
+        <button class="pk-back" id="pk-back-to-comp">← Back</button>
+        <div id="pk-arena-list" class="pk-list"></div>
+      </div>
+
+      <!-- OBS URL helper — shown once an arena is chosen -->
+      <div id="pk-obs" hidden>
+        <div class="pk-obs-label">OBS Browser Source URL</div>
+        <div class="pk-obs-row">
+          <input id="pk-obs-url" class="pk-obs-input" readonly />
+          <button id="pk-obs-copy" class="pk-obs-copy">Copy</button>
+        </div>
+        <div class="pk-obs-hint">
+          Paste this into an OBS <strong>Browser</strong> source (1920×1080). The page
+          background is transparent, so place it above your video.
+        </div>
+        <button id="pk-obs-open" class="pk-open-btn">Open overlay now →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── OVERLAY ──────────────────────────────────────────────────────────
+       Transparent; five blocks pinned to the corners + bottom-center.
+       Hidden whenever there is no active run. -->
+  <div id="overlay" hidden>
+    <div id="ov-test" class="ov-pill"></div>
+    <div id="ov-team" class="ov-pill"></div>
+
+    <div id="ov-time" class="ov-pill ov-stat">
+      <span id="ov-time-value" class="ov-stat-value">—</span>
+      <span id="ov-time-status" class="ov-pill-unit">TIME</span>
+    </div>
+
+    <div id="ov-score" class="ov-pill ov-stat">
+      <span id="ov-score-value" class="ov-stat-value">0</span>
+      <span class="ov-pill-unit">PTS</span>
+    </div>
+
+    <div id="ov-feed" class="ov-pill" hidden>
+      <div id="ov-feed-list"></div>
+    </div>
+
+    <!-- Final-result flash (bottom-center) — shown ~10s after a run is submitted -->
+    <div id="ov-final" class="ov-pill" hidden>
+      <div id="ov-final-label">Final</div>
+      <div id="ov-final-team"></div>
+      <div id="ov-final-score">0</div>
+      <span class="ov-pill-unit">points</span>
+    </div>
+  </div>
+
+  <script is:inline type="module" src={`${base}/assets/referee-tool/js/streaming.js`}></script>
+</RefLayout>

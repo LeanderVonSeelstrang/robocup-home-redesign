@@ -1,0 +1,186 @@
+/* Referee Tool landing page — reuses the global theme tokens from styles.css */
+
+.ref-landing {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 4rem 1.5rem 5rem;
+}
+
+.ref-landing-header {
+  text-align: center;
+  margin-bottom: 3rem;
+}
+
+.ref-landing-header h1 {
+  font-family: var(--font-head);
+  font-size: clamp(1.8rem, 4vw, 2.6rem);
+  font-weight: 800;
+  color: var(--text);
+}
+
+.ref-landing-header p {
+  margin-top: 0.5rem;
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+/* Auth bar */
+.ref-auth-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.ref-auth-status {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* Admin section */
+#ref-admin-section {
+  margin-top: 2.5rem;
+}
+
+.ref-section-label {
+  font-family: var(--font-head);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Competition picker */
+.ref-comp-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  justify-content: center;
+  margin-bottom: 2rem;
+  flex-wrap: wrap;
+}
+
+.ref-comp-picker label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.ref-comp-picker select {
+  min-width: 240px;
+  padding: 0.6rem 0.9rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.ref-comp-picker select:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Admin-only "Final result duration" control — plain text + field (no card chrome),
+   padded to line up with the Admin Console card beside it. */
+.ref-final-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 1.75rem 1.5rem;
+}
+
+.ref-final-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.ref-final-card input {
+  width: 5.5rem;
+  padding: 0.5rem 0.7rem;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+}
+
+.ref-final-unit {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.ref-final-status {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-left: auto;
+}
+
+.ref-landing-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.25rem;
+}
+
+@media (max-width: 520px) {
+  .ref-landing-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Span the full first row — used for the primary Dashboard card and the lone
+   Admin card so they fill both columns instead of leaving a gap. */
+.ref-landing-card--wide { grid-column: 1 / -1; }
+
+@media (max-width: 520px) {
+  .ref-landing-card--wide { grid-column: auto; }
+}
+
+.ref-landing-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 1.75rem 1.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  text-decoration: none;
+  transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.ref-landing-card:not(.is-disabled):hover,
+.ref-landing-card:not(.is-disabled):focus-visible {
+  border-color: var(--accent);
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  outline: none;
+}
+
+.ref-landing-card.is-disabled {
+  opacity: 0.5;
+  cursor: default;
+  pointer-events: none;
+}
+
+.ref-landing-label {
+  font-family: var(--font-head);
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.ref-landing-desc {
+  font-size: 0.9rem;
+  color: var(--muted);
+  line-height: 1.5;
+}

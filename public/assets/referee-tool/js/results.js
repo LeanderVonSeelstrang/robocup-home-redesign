@@ -1,6 +1,6 @@
 import { db, ensureAuth } from './firebase.js';
 import {
-  doc, collection, getDoc, getDocs, onSnapshot
+  doc, collection, getDoc, getDocs, onSnapshot, query, where
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
 
 // ── URL PARAMS ────────────────────────────────────────────────────────────────
@@ -35,11 +35,16 @@ async function init() {
   document.getElementById('results-loading').hidden = true;
   document.getElementById('results-page').hidden = false;
 
-  onSnapshot(collection(db, 'competitions', compId, 'runs'), snap => {
-    runs = {};
-    snap.docs.forEach(d => { runs[d.id] = d.data(); });
-    render();
-  });
+  // Results only ever shows submitted runs — scope the subscription so we don't
+  // download in-progress drafts (and the renderer no longer needs to filter).
+  onSnapshot(
+    query(collection(db, 'competitions', compId, 'runs'), where('status', '==', 'submitted')),
+    snap => {
+      runs = {};
+      snap.docs.forEach(d => { runs[d.id] = d.data(); });
+      render();
+    }
+  );
 }
 
 // ── RENDER ────────────────────────────────────────────────────────────────────
@@ -102,7 +107,7 @@ function renderOverall(submitted) {
             <tr class="${i === 0 ? 'row-first' : ''}">
               <td class="col-rank">${medal}</td>
               <td class="col-team">
-                <a href="${window.__siteBase || ''}/team?id=${encodeURIComponent(entry.teamId)}" class="results-team-link">${entry.teamName}</a>
+                <a href="${(window.__siteBase || '') + '/team-scores?' + new URLSearchParams({ competition: compId, team: entry.teamId, teamName: entry.teamName })}" class="results-team-link">${entry.teamName}</a>
               </td>
               ${testNames.map(n => {
                 const tid = tests.find(t => t.name === n)?.id;
@@ -162,7 +167,7 @@ function renderPerTest(submitted) {
         <tr class="${i === 0 ? 'row-first' : ''}">
           <td class="col-rank">${medal}</td>
           <td class="col-team">
-            <a href="${window.__siteBase || ''}/team?id=${encodeURIComponent(run.teamId)}" class="results-team-link">${run.teamName || run.teamId}</a>
+            <a href="${(window.__siteBase || '') + '/team-scores?' + new URLSearchParams({ competition: compId, team: run.teamId, teamName: run.teamName || run.teamId })}" class="results-team-link">${run.teamName || run.teamId}</a>
           </td>
           <td class="col-score"><a href="${scoreUrl}" target="_blank" rel="noopener" class="results-score-link">${run.totalScore ?? 0}</a></td>
         </tr>

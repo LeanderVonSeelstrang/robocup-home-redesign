@@ -197,6 +197,11 @@ footer { border-top: 1px solid var(--border); padding: 2rem 3rem; display: flex;
 .back-link { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-head); font-size: 13px; font-weight: 500; color: var(--muted); text-decoration: none; margin-bottom: 2.5rem; transition: color 0.2s; }
 .back-link:hover { color: var(--accent); }
 
+/* REFEREE-TOOL "BACK TO MENU" LINK — compact pill, used across referee pages */
+.ref-menu-link { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-head); font-size: 13px; font-weight: 500; color: var(--muted); text-decoration: none; padding: 5px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); transition: color 0.2s, border-color 0.2s; }
+.ref-menu-link:hover { color: var(--accent); border-color: var(--accent); }
+.ref-menu-bar { padding: 16px 20px 0; }
+
 /* TEAM HEADER */
 .team-header { border-bottom: 1px solid var(--border); padding-bottom: 2rem; margin-bottom: 2.5rem; }
 .team-tag { font-family: var(--font-head); font-size: 12px; letter-spacing: 0.1em; color: var(--accent); text-transform: uppercase; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 10px; font-weight: 600; }

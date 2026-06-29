@@ -1,6 +1,9 @@
 import { initializeApp, getApps } from 'firebase/app';
-import { initializeFirestore, memoryLocalCache } from 'firebase/firestore';
-import { getAuth, signInAnonymously } from 'firebase/auth';
+import {
+  initializeFirestore, memoryLocalCache,
+  persistentLocalCache, persistentMultipleTabManager, connectFirestoreEmulator,
+} from 'firebase/firestore';
+import { getAuth, signInAnonymously, connectAuthEmulator } from 'firebase/auth';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyDGeFlm93CEj4ZZBckdSY41t1lq4gw2Sss',
@@ -13,8 +16,31 @@ const firebaseConfig = {
 
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 
-export const db = initializeFirestore(app, { localCache: memoryLocalCache() });
+// ── EMULATOR (localhost only) ── KEEP IN SYNC with public/assets/referee-tool/js/firebase.js ──
+// localhost → local emulator, deployed → real DB. Decided automatically by hostname so
+// production builds (johaq.github.io) are never affected. Also guarded against the static
+// build step (no `window`), since this module runs at build time via teams.astro / LiveBanner.astro.
+const onLocalhost = typeof window !== 'undefined' &&
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+// Force long-polling against the emulator: the default WebChannel transport is slow and
+// flaky against the local Firestore emulator (causes "client is offline" + multi-second waits).
+// Cache: IndexedDB-backed persistent cache in the browser (bounded LRU, survives reloads,
+// multi-tab) — but fall back to memory cache during the static build (this module runs at
+// build time in Node, which has no IndexedDB).
+const inBrowser = typeof window !== 'undefined';
+export const db = initializeFirestore(app, {
+  localCache: inBrowser
+    ? persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+    : memoryLocalCache(),
+  ...(onLocalhost ? { experimentalForceLongPolling: true } : {}),
+});
 export const auth = getAuth(app);
+
+if (onLocalhost) {
+  connectFirestoreEmulator(db, 'localhost', 8080);
+  connectAuthEmulator(auth, 'http://localhost:9099', { disableWarnings: true });
+}
 
 export async function ensureAuth() {
   await auth.authStateReady();

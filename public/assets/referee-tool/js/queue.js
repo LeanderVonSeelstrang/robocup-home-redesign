@@ -62,24 +62,35 @@ async function showQueue(compId) {
   const compData = compSnap.exists() ? compSnap.data() : {};
   document.getElementById('queue-comp-name').textContent = compData.name || compId;
 
+  // Each listener updates state then requests one coalesced re-render, so a burst of
+  // score updates doesn't trigger a full re-render per snapshot.
   onSnapshot(collection(db, 'competitions', compId, 'slots'), snap => {
     slots = {};
     snap.docs.forEach(d => { slots[d.id] = { id: d.id, ...d.data() }; });
-    renderArenaFilter();
-    render();
+    scheduleRender();
   });
 
   onSnapshot(collection(db, 'competitions', compId, 'runs'), snap => {
     runs = {};
     snap.docs.forEach(d => { runs[d.id] = d.data(); });
-    render();
+    scheduleRender();
   });
 
   onSnapshot(collection(db, 'competitions', compId, 'inspections'), snap => {
     inspections = {};
     snap.docs.forEach(d => { inspections[d.id] = d.data(); });
-    render();
+    scheduleRender();
   });
+}
+
+let renderTimer = null;
+function scheduleRender() {
+  if (renderTimer) return;
+  renderTimer = setTimeout(() => {
+    renderTimer = null;
+    renderArenaFilter();
+    render();
+  }, 120);
 }
 
 function renderArenaFilter() {
