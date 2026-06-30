@@ -122,7 +122,11 @@ function applyTeamFilter() {
   const allColHeads = [...(outer?.querySelectorAll('.comp-sched-col-head') || [])];
 
   if (!activeTeamFilter) {
-    outer?.querySelectorAll('.comp-sched-slot').forEach(el => { el.hidden = false; });
+    outer?.querySelectorAll('.comp-sched-slot').forEach(el => {
+      el.hidden = false;
+      const metaEl = el.querySelector('.comp-sched-slot-meta');
+      if (metaEl && el.dataset.defaultMeta) metaEl.textContent = el.dataset.defaultMeta;
+    });
     allDayCols.forEach(el  => { el.style.display = ''; });
     allColHeads.forEach(el => { el.style.display = ''; });
     if (wrap) wrap.style.width = (SCHED.TIME_W + allDayCols.length * SCHED.COL_W) + 'px';
@@ -136,9 +140,18 @@ function applyTeamFilter() {
     if (!slot) { el.hidden = true; return; }
     const type = slot.type || 'test';
     if (type !== 'test' && type !== 'mapping') { el.hidden = true; return; }
-    const inSlot = (slot.teams || []).some(t => t.teamId === activeTeamFilter);
-    el.hidden = !inSlot;
-    if (inSlot) {
+    const teamEntry = (slot.teams || []).find(t => t.teamId === activeTeamFilter);
+    el.hidden = !teamEntry;
+    if (teamEntry) {
+      const metaEl = el.querySelector('.comp-sched-slot-meta');
+      if (metaEl) {
+        if (type === 'mapping') {
+          const startMin = timeToMinutes(slot.time) + (teamEntry.startOffset || 0);
+          metaEl.textContent = minutesToTime(startMin);
+        } else {
+          metaEl.textContent = `#${teamEntry.order} of ${slot.teams.length}`;
+        }
+      }
       const colEl = el.closest('.comp-sched-day-col');
       if (colEl) visibleColIds.add(colEl.dataset.colId);
     }
@@ -572,9 +585,11 @@ function renderSlotBlocks(days, arenas, openMin) {
     if (type === 'test' && teamCount)    metaParts.push(teamCount + ' team' + (teamCount !== 1 ? 's' : ''));
     if (type === 'mapping' && teamCount) metaParts.push(teamCount + ' × 10 min');
     if (slot.referee) metaParts.push(slot.referee);
+    const defaultMeta = metaParts.join(' · ');
+    block.dataset.defaultMeta = defaultMeta;
     block.innerHTML = `
       <div class="comp-sched-slot-name">${displayName}</div>
-      <div class="comp-sched-slot-meta">${metaParts.join(' · ')}</div>
+      <div class="comp-sched-slot-meta">${defaultMeta}</div>
     `;
 
     colEl.appendChild(block);
