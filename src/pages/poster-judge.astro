@@ -1,0 +1,22 @@
+---
+import RefLayout from '../layouts/RefLayout.astro';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<RefLayout title="Poster Session Scoring — RoboCup@Home" fonts="DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400">
+  <link slot="head" rel="stylesheet" href={`${base}/assets/referee-tool/css/poster.css`} />
+
+  <div id="pj-loading" class="pj-loading">Loading…</div>
+  <div id="pj-error"   class="pj-error"   hidden></div>
+
+  <div id="pj-page" hidden>
+    <header class="pj-header">
+      <div id="pj-event-name" class="pj-event-name"></div>
+      <div id="pj-team-name"  class="pj-team-name"></div>
+      <div class="pj-hint">Tap a score for each team's presentation (1 = low · 10 = high). Scores save automatically.</div>
+      <div id="pj-status" class="pj-status"></div>
+    </header>
+    <div id="pj-teams" class="pj-teams"></div>
+  </div>
+</RefLayout>
+
+<script is:inline type="module" src={`${base}/assets/js/poster-judge.js`}></script>

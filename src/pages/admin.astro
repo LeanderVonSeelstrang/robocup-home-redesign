@@ -4,6 +4,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
 <RefLayout title="Admin — RoboCup@Home Scoring">
   <link slot="head" rel="stylesheet" href={`${base}/assets/referee-tool/css/admin.css`} />
+  <link slot="head" rel="stylesheet" href={`${base}/assets/referee-tool/css/poster.css`} />
 
   <!-- LOGIN SCREEN -->
   <div id="screen-login" class="login-screen" hidden>
@@ -270,6 +271,21 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     <div id="slot-link-box" class="card" style="margin-top:24px">
       <div class="slot-link-label">Referee link for this slot</div>
       <div id="slot-link" class="slot-link-url"></div>
+    </div>
+  </div>
+
+  <!-- POSTER SESSION MANAGEMENT SCREEN -->
+  <div id="screen-poster" class="screen" hidden>
+    <div class="screen-header">
+      <h2 id="poster-title">Poster Session</h2>
+    </div>
+    <div id="poster-links-section">
+      <div class="poster-section-title">Judge Links</div>
+      <div id="poster-links-grid" class="poster-links-grid"></div>
+    </div>
+    <div id="poster-matrix-section">
+      <div class="poster-section-title">Scoring Progress</div>
+      <div id="poster-matrix"></div>
     </div>
   </div>
 

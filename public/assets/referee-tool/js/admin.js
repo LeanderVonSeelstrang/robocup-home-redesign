@@ -1,6 +1,7 @@
 import { db, auth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from './firebase.js';
 import {
-  collection, doc, addDoc, getDocs, getDoc, setDoc, updateDoc, deleteDoc, writeBatch, query, where
+  collection, doc, addDoc, getDocs, getDoc, setDoc, updateDoc, deleteDoc,
+  writeBatch, query, where, onSnapshot
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
 import { convertTexToTest } from './admin-tex.js';
 
@@ -140,7 +141,10 @@ function setBreadcrumb(parts) {
 
 // ── SCREEN SWITCHING ──────────────────────────────────────────────────────────
 
+let _screenCleanup = null;
+
 function showScreen(id) {
+  if (_screenCleanup) { _screenCleanup(); _screenCleanup = null; }
   document.querySelectorAll('.screen').forEach(s => s.hidden = true);
   document.getElementById(`screen-${id}`).hidden = false;
 }
@@ -1534,8 +1538,10 @@ function renderSlotBlock(slot) {
   });
 
   block.querySelector('.sched-slot-inner').addEventListener('click', () => {
+    const back = () => showSchedule(schedState.compId, schedState.compName);
+    if (type === 'poster') { showPosterManagement(slot, back); return; }
     if (!['test', 'inspection', 'mapping'].includes(type)) return;
-    showSlotTeams(slot.id, name, slot, () => showSchedule(schedState.compId, schedState.compName));
+    showSlotTeams(slot.id, name, slot, back);
   });
 
   // ── DRAG HANDLE (move) ────────────────────────────────────────────────────────
@@ -1724,6 +1730,102 @@ function makeSpecialCard(type, label, cls) {
   });
   card.addEventListener('dragend', () => card.classList.remove('sched-dragging'));
   return card;
+}
+
+// ── POSTER SESSION MANAGEMENT ─────────────────────────────────────────────────
+
+function showPosterManagement(slot, backFn) {
+  showScreen('poster');
+
+  const back = backFn || (() => showSchedule(schedState.compId, schedState.compName));
+  setBack(back);
+  setBreadcrumb([
+    { label: 'Competitions', onClick: showCompetitions },
+    { label: schedState.compName, onClick: back },
+    { label: 'Poster Session' }
+  ]);
+
+  document.getElementById('poster-title').textContent =
+    `Poster Session — ${slot.date || ''} ${slot.time || ''}`.trim();
+
+  // Build judge links + QR codes
+  const siteBase  = window.__siteBase || '';
+  const judgeBase = `${window.location.origin}${siteBase}/poster-judge`;
+  const grid      = document.getElementById('poster-links-grid');
+  grid.innerHTML  = '';
+
+  for (const team of compTeams) {
+    const url    = `${judgeBase}?comp=${schedState.compId}&slot=${slot.id}&team=${team.teamId}`;
+    const qrSrc  = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(url)}`;
+    const card   = document.createElement('div');
+    card.className = 'poster-link-card';
+    card.innerHTML = `
+      <div class="poster-link-team">${team.teamName}</div>
+      <img class="poster-link-qr" src="${qrSrc}" alt="QR for ${team.teamName}" loading="lazy" />
+      <button class="poster-copy-btn" data-url="${url}">Copy link</button>
+    `;
+    card.querySelector('.poster-copy-btn').addEventListener('click', e => {
+      navigator.clipboard.writeText(url).then(() => {
+        e.target.textContent = 'Copied!';
+        e.target.classList.add('copied');
+        setTimeout(() => {
+          e.target.textContent = 'Copy link';
+          e.target.classList.remove('copied');
+        }, 2000);
+      });
+    });
+    grid.appendChild(card);
+  }
+
+  // Subscribe to live scoring progress
+  const matrixEl  = document.getElementById('poster-matrix');
+  const unsubscribe = onSnapshot(
+    collection(db, 'competitions', schedState.compId, 'slots', slot.id, 'posterScores'),
+    snap => {
+      const byJudge = {};
+      snap.docs.forEach(d => { byJudge[d.id] = d.data().scores || {}; });
+      renderPosterMatrix(matrixEl, compTeams, byJudge);
+    }
+  );
+  _screenCleanup = unsubscribe;
+}
+
+function renderPosterMatrix(container, teams, byJudge) {
+  // Calculate averages per presenter
+  const averages = {};
+  for (const presenter of teams) {
+    const scores = teams
+      .filter(j => j.teamId !== presenter.teamId)
+      .map(j => (byJudge[j.teamId] || {})[presenter.teamId])
+      .filter(s => s !== undefined);
+    averages[presenter.teamId] = scores.length
+      ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1)
+      : '—';
+  }
+
+  let html = '<div class="poster-matrix-scroll"><table class="poster-matrix-table"><thead>';
+  html += '<tr><th class="pm-corner">Judge ↓ · Presenter →</th>';
+  for (const t of teams) html += `<th class="pm-col-head">${t.teamName}</th>`;
+  html += '</tr></thead><tbody>';
+
+  for (const judge of teams) {
+    const jScores = byJudge[judge.teamId] || {};
+    html += `<tr><th class="pm-row-head">${judge.teamName}</th>`;
+    for (const presenter of teams) {
+      if (judge.teamId === presenter.teamId) {
+        html += '<td class="pm-self">—</td>';
+      } else {
+        const s = jScores[presenter.teamId];
+        html += `<td class="pm-score${s !== undefined ? ' has-score' : ''}">${s !== undefined ? s : '·'}</td>`;
+      }
+    }
+    html += '</tr>';
+  }
+
+  html += '</tbody><tfoot><tr class="pm-avg-row"><th class="pm-row-head">Average</th>';
+  for (const t of teams) html += `<td class="pm-avg">${averages[t.teamId]}</td>`;
+  html += '</tr></tfoot></table></div>';
+  container.innerHTML = html;
 }
 
 // ── ARENA BALANCING ───────────────────────────────────────────────────────────

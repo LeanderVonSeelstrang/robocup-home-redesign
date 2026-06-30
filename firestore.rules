@@ -43,6 +43,14 @@ service cloud.firestore {
       match /slots/{slotId} {
         allow read:  if true;
         allow write: if isAdmin();
+
+        // Poster session scores: public read (results on competition page),
+        // any signed-in user can write their own judge document (QR code flow uses
+        // anonymous auth — having the link is the credential).
+        match /posterScores/{judgeTeamId} {
+          allow read:  if true;
+          allow write: if request.auth != null;
+        }
       }
 
       // Runs: public read (liveview needs scores + timer state),
