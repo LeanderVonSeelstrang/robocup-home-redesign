@@ -1,4 +1,4 @@
-import { db, ensureAuth } from '../referee-tool/js/firebase.js';
+import { db, ensureAuth } from './firebase-public.js';
 import {
   doc, collection, getDoc, getDocs, onSnapshot
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
@@ -222,15 +222,25 @@ async function loadModern() {
     });
     setInterval(() => { renderLiveBox(); updateSlotStates(); }, 60_000);
   } else {
-    // Past competition: one-time fetch, no live boxes
-    const [slotsSnap, runsSnap] = await Promise.all([
-      getDocs(collection(db, 'competitions', compId, 'slots')),
-      getDocs(collection(db, 'competitions', compId, 'runs')),
-    ]);
+    // Past competition: fetch slots and runs in parallel but render schedule the moment
+    // slots arrive — don't block on runs (which may be larger / slower).
+    const runsPromise = getDocs(collection(db, 'competitions', compId, 'runs'));
+    const slotsSnap = await getDocs(collection(db, 'competitions', compId, 'slots'));
     slotsSnap.docs.forEach(d => { slots[d.id] = { id: d.id, ...d.data() }; });
-    runsSnap.docs.forEach(d => { runs[d.id] = d.data(); });
-    renderLeaderboard();
     renderSchedule();
+
+    document.getElementById('slot-panel-close').addEventListener('click', closeSlotPanel);
+    document.getElementById('slot-panel-backdrop').addEventListener('click', closeSlotPanel);
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSlotPanel(); });
+    document.getElementById('comp-page').hidden = false;
+
+    // Leaderboard and slot states update once runs arrive (non-blocking)
+    runsPromise.then(runsSnap => {
+      runsSnap.docs.forEach(d => { runs[d.id] = d.data(); });
+      renderLeaderboard();
+      updateSlotStates();
+    });
+    return;
   }
 
   document.getElementById('slot-panel-close').addEventListener('click', closeSlotPanel);
