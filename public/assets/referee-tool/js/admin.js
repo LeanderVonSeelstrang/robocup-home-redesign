@@ -1780,8 +1780,9 @@ async function balanceArenaAssignments() {
       const arenaSlots = dayMap[arena] || [];
       if (!arenaSlots.length) return;
       const group = groups[(i + d) % n];
-      const teams = group.map((t, j) => ({ teamId: t.teamId, teamName: t.teamName, order: j + 1 }));
       for (const slot of arenaSlots) {
+        const shuffled = [...group].sort(() => Math.random() - 0.5);
+        const teams = shuffled.map((t, j) => ({ teamId: t.teamId, teamName: t.teamName, order: j + 1 }));
         batch.update(doc(db, 'competitions', schedState.compId, 'slots', slot.id), { teams });
         changed++;
       }
