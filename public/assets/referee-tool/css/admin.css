@@ -829,6 +829,21 @@ select option { background: #1e1f22; }
 .sched-slot-block.type-other .sched-slot-del { border-left-color: rgba(255,255,255,0.1); }
 .sched-slot-block.type-other .sched-slot-resize::after { background: var(--muted); }
 
+.sched-test-card.type-mapping {
+  border-left-color: #b06aff;
+  color: #b06aff;
+}
+.sched-test-card.type-mapping:hover { background: rgba(176,106,255,0.16); }
+
+.sched-slot-block.type-mapping {
+  background: rgba(176,106,255,0.12);
+  border-left-color: #b06aff;
+}
+.sched-slot-block.type-mapping:hover { background: rgba(176,106,255,0.24); }
+.sched-slot-block.type-mapping .sched-slot-name { color: #b06aff; }
+.sched-slot-block.type-mapping .sched-slot-del { border-left-color: rgba(176,106,255,0.18); }
+.sched-slot-block.type-mapping .sched-slot-resize::after { background: #b06aff; }
+
 /* Non-test slot inner: not clickable */
 .sched-slot-block.type-inspection .sched-slot-inner,
 .sched-slot-block.type-poster .sched-slot-inner,

@@ -62,6 +62,7 @@ function slotDisplayName(slot) {
   const type = slot.type || 'test';
   if (type === 'inspection') return 'Robot Inspection';
   if (type === 'poster')     return 'Poster Session';
+  if (type === 'mapping')    return 'Arena Mapping';
   if (type === 'other')      return slot.label || 'Other Event';
   return tests.find(t => t.id === slot.testId)?.name || slot.testId || '—';
 }
@@ -552,6 +553,21 @@ function openSlotPanel(slot) {
 
   if (!teams.length) {
     body.innerHTML = '<div class="slot-panel-empty">No teams in this slot.</div>';
+  } else if (slot.type === 'mapping') {
+    const slotStart = timeToMinutes(slot.time || '00:00');
+    body.innerHTML = teams.map((t, idx) => {
+      const startTime = minutesToTime(slotStart + (t.startOffset ?? idx * 10));
+      return `
+        <div class="slot-panel-team-row">
+          <div class="slot-panel-team-left">
+            <span class="slot-panel-team-name">${t.teamName}</span>
+          </div>
+          <div class="slot-panel-team-right">
+            <span class="slot-panel-status">${startTime}</span>
+          </div>
+        </div>
+      `;
+    }).join('');
   } else {
     body.innerHTML = teams.map(t => {
       const run    = runs[`${slot.id}_${t.teamId}`];
