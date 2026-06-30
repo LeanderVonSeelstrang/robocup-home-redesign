@@ -32,10 +32,11 @@ const SCHED = { CELL_H: 40, TIME_W: 56, COL_W: 180, HEADER_H: 48 };
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
 
-let comp  = null;
-let slots = {};
-let runs  = {};
-let tests = [];
+let comp             = null;
+let slots            = {};
+let runs             = {};
+let tests            = [];
+let activeTeamFilter = '';
 
 // ── TIMEZONE HELPERS ──────────────────────────────────────────────────────────
 
@@ -94,6 +95,70 @@ function slotStatus(slot) {
   return allSubmitted ? 'past' : 'active';
 }
 
+// ── TEAM FILTER ───────────────────────────────────────────────────────────────
+
+function setupTeamFilter() {
+  const teams = (comp.participatingTeams || [])
+    .slice().sort((a, b) => a.teamName.localeCompare(b.teamName));
+  if (!teams.length) return;
+
+  const select = document.getElementById('comp-team-filter');
+  select.innerHTML = '<option value="">All teams</option>' +
+    teams.map(t => `<option value="${t.teamId}">${t.teamName}</option>`).join('');
+  select.value = activeTeamFilter;
+
+  document.getElementById('comp-sched-filter').hidden = false;
+
+  select.addEventListener('change', () => {
+    activeTeamFilter = select.value;
+    applyTeamFilter();
+  });
+}
+
+function applyTeamFilter() {
+  const outer       = document.getElementById('comp-sched-outer');
+  const wrap        = outer?.querySelector('.comp-sched-wrap');
+  const allDayCols  = [...(outer?.querySelectorAll('.comp-sched-day-col')  || [])];
+  const allColHeads = [...(outer?.querySelectorAll('.comp-sched-col-head') || [])];
+
+  if (!activeTeamFilter) {
+    outer?.querySelectorAll('.comp-sched-slot').forEach(el => { el.hidden = false; });
+    allDayCols.forEach(el  => { el.style.display = ''; });
+    allColHeads.forEach(el => { el.style.display = ''; });
+    if (wrap) wrap.style.width = (SCHED.TIME_W + allDayCols.length * SCHED.COL_W) + 'px';
+    return;
+  }
+
+  // Show only test/mapping slots that include the selected team; collect their column ids
+  const visibleColIds = new Set();
+  outer?.querySelectorAll('.comp-sched-slot').forEach(el => {
+    const slot = slots[el.dataset.slotId];
+    if (!slot) { el.hidden = true; return; }
+    const type = slot.type || 'test';
+    if (type !== 'test' && type !== 'mapping') { el.hidden = true; return; }
+    const inSlot = (slot.teams || []).some(t => t.teamId === activeTeamFilter);
+    el.hidden = !inSlot;
+    if (inSlot) {
+      const colEl = el.closest('.comp-sched-day-col');
+      if (colEl) visibleColIds.add(colEl.dataset.colId);
+    }
+  });
+
+  // Hide columns that have no visible slots; count the ones that remain
+  let visibleCount = 0;
+  allDayCols.forEach(el => {
+    const show = visibleColIds.has(el.dataset.colId);
+    el.style.display = show ? '' : 'none';
+    if (show) visibleCount++;
+  });
+  allColHeads.forEach(el => {
+    el.style.display = visibleColIds.has(el.dataset.colId) ? '' : 'none';
+  });
+
+  // Shrink the wrap so there's no dead space on the right
+  if (wrap) wrap.style.width = (SCHED.TIME_W + visibleCount * SCHED.COL_W) + 'px';
+}
+
 // ── INIT ──────────────────────────────────────────────────────────────────────
 
 async function init() {
@@ -122,6 +187,7 @@ async function loadModern() {
   tests = testsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
   renderModernInfo();
+  setupTeamFilter();
 
   if (comp.active) {
     // Live competition: real-time listeners + live/upnext boxes
@@ -380,6 +446,7 @@ function renderSchedule() {
   outer.appendChild(buildGrid(days, arenas, openMin, closeMin));
   renderSlotBlocks(days, arenas, openMin);
   updateSlotStates();
+  applyTeamFilter();
 
   if (comp.active) updateNowLine();
 

@@ -320,6 +320,27 @@ a.comp-team-chip:hover {
   margin-top: 4px;
 }
 
+.comp-sched-filter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.comp-sched-filter-label {
+  font-size: 13px;
+  color: var(--muted);
+}
+.comp-sched-filter-select {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.comp-sched-filter-select:focus { outline: none; border-color: var(--accent); }
+
 .comp-sched-nodates {
   padding: 48px 0;
   text-align: center;

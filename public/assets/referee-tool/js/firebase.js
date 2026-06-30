@@ -24,9 +24,10 @@ const app = initializeApp(firebaseConfig);
 // ── EMULATOR (localhost only) ── KEEP IN SYNC with src/lib/firebase.ts ──
 // localhost → local emulator, deployed → real DB. Decided automatically by hostname so
 // production (johaq.github.io) is never affected.
-const USE_EMULATOR =
-  typeof location !== 'undefined' &&
-  (location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+const USE_EMULATOR = false; // temporarily disabled for local prod testing
+// const USE_EMULATOR =
+//   typeof location !== 'undefined' &&
+//   (location.hostname === 'localhost' || location.hostname === '127.0.0.1');
 
 // Force long-polling against the emulator: the default WebChannel transport is slow and
 // flaky against the local Firestore emulator (causes "client is offline" + multi-second waits).

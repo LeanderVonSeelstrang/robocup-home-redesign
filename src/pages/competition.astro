@@ -68,6 +68,12 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
         <div class="page-tag" style="margin-bottom:0.5rem">Schedule</div>
         <div id="comp-tz-note" class="comp-tz-note"></div>
       </div>
+      <div id="comp-sched-filter" class="comp-sched-filter" hidden>
+        <span class="comp-sched-filter-label">Show team</span>
+        <select id="comp-team-filter" class="comp-sched-filter-select">
+          <option value="">All teams</option>
+        </select>
+      </div>
       <div id="comp-sched-outer" class="comp-sched-outer"></div>
       <div id="comp-sched-nodates" class="comp-sched-nodates" hidden>No schedule published yet.</div>
     </div>
