@@ -466,6 +466,18 @@ a.comp-team-chip:hover {
 .comp-sched-slot.type-poster .comp-sched-slot-name { color: #ffa03c; }
 .comp-sched-slot.type-poster.slot-done { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.1); }
 
+.comp-sched-slot.type-mapping {
+  background: rgba(176,106,255,0.12);
+  border-color: rgba(176,106,255,0.4);
+}
+.comp-sched-slot.type-mapping.slot-active {
+  background: rgba(176,106,255,0.22);
+  border-color: rgba(176,106,255,0.7);
+  box-shadow: 0 0 0 2px rgba(176,106,255,0.15);
+}
+.comp-sched-slot.type-mapping .comp-sched-slot-name { color: #b06aff; }
+.comp-sched-slot.type-mapping.slot-done { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.1); }
+
 .comp-sched-slot.type-other {
   background: rgba(255,255,255,0.05);
   border-color: rgba(255,255,255,0.18);
