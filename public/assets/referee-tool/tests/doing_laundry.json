@@ -40,6 +40,11 @@
               "label": "Human assistance: Flattening/Arranging clothing before folding"
             },
             {
+              "id": "fold_quality",
+              "type": "percentage",
+              "label": "Quality Penalties"
+            },
+            {
               "id": "fold_pct",
               "type": "percentage",
               "label": "Human assistance during folding (% of item score)"
@@ -98,6 +103,11 @@
               "type": "fixed",
               "points": 200,
               "label": "Human assistance: Flattening/Arranging clothing before folding"
+            },
+            {
+              "id": "fold_add_quality",
+              "type": "percentage",
+              "label": "Quality Penalties"
             },
             {
               "id": "fold_add_pct",

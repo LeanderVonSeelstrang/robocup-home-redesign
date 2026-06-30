@@ -1189,6 +1189,8 @@ async function showSchedule(compId, compName) {
   document.getElementById('sched-settings-btn').onclick = () => showSlots(compId, compName);
   document.getElementById('sched-settings-btn').textContent = '← Back to Settings';
 
+  document.getElementById('sched-balance-btn').onclick = balanceArenaAssignments;
+
   // Venue time inputs
   document.getElementById('venue-open').value  = comp.venueOpen  || '09:00';
   document.getElementById('venue-close').value = comp.venueClose || '22:00';
@@ -1677,6 +1679,62 @@ function makeSpecialCard(type, label, cls) {
   });
   card.addEventListener('dragend', () => card.classList.remove('sched-dragging'));
   return card;
+}
+
+// ── ARENA BALANCING ───────────────────────────────────────────────────────────
+
+async function balanceArenaAssignments() {
+  if (!compTeams.length) { alert('No participating teams found.'); return; }
+  if (!confirm(
+    'Reshuffle all test slot team assignments so each team visits each arena once per cycle?\n\n' +
+    'This overwrites the current team distribution.'
+  )) return;
+
+  const snap = await getDocs(collection(db, 'competitions', schedState.compId, 'slots'));
+  const slots = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+  // Group: testId → date → [slot, ...]
+  const byTest = {};
+  for (const slot of slots) {
+    if (slot.type !== 'test' || !slot.testId) continue;
+    (byTest[slot.testId] ??= {})[slot.date] ??= [];
+    byTest[slot.testId][slot.date].push(slot);
+  }
+
+  const batch = writeBatch(db);
+  let changed = 0;
+
+  for (const dayMap of Object.values(byTest)) {
+    // Only consider days that actually have multiple arenas
+    const multiDays = Object.keys(dayMap).filter(d => dayMap[d].length > 1).sort();
+    if (!multiDays.length) continue;
+
+    const numArenas = dayMap[multiDays[0]].length;
+
+    // Shuffle all teams once for this test, then split into numArenas groups
+    const shuffled = [...compTeams].sort(() => Math.random() - 0.5);
+    const groups = Array.from({ length: numArenas }, (_, i) => {
+      const start = Math.floor((i / numArenas) * shuffled.length);
+      const end   = Math.floor(((i + 1) / numArenas) * shuffled.length);
+      return shuffled.slice(start, end);
+    });
+
+    // For day at index d, arena at index i → groups[(i + d) % numArenas]
+    for (let d = 0; d < multiDays.length; d++) {
+      const daySlots = dayMap[multiDays[d]].sort((a, b) => a.arena.localeCompare(b.arena));
+      for (let i = 0; i < daySlots.length; i++) {
+        const group = groups[(i + d) % numArenas];
+        const teams = group.map((t, j) => ({ teamId: t.teamId, teamName: t.teamName, order: j + 1 }));
+        batch.update(doc(db, 'competitions', schedState.compId, 'slots', daySlots[i].id), { teams });
+        changed++;
+      }
+    }
+  }
+
+  if (!changed) { alert('No multi-arena test slots found to balance.'); return; }
+
+  await batch.commit();
+  await showSchedule(schedState.compId, schedState.compName);
 }
 
 // ── GO ────────────────────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 {
   "testId": "hri_challenge",
   "name": "HRI Challenge",
-  "timeLimit": 6,
+  "timeLimit": 7,
   "sections": [
     {
       "id": "greeting",
