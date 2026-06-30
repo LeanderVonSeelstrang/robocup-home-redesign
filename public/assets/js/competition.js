@@ -66,6 +66,7 @@ function slotDisplayName(slot) {
   const type = slot.type || 'test';
   if (type === 'inspection') return 'Robot Inspection';
   if (type === 'poster')     return 'Poster Session';
+  if (type === 'mapping')    return 'Arena Mapping';
   if (type === 'other')      return slot.label || 'Other Event';
   return tests.find(t => t.id === slot.testId)?.name || slot.testId || '—';
 }
@@ -394,11 +395,12 @@ function updateSlotStates() {
   for (const slot of Object.values(slots)) {
     const el = document.querySelector(`.comp-sched-slot[data-slot-id="${slot.id}"]`);
     if (!el) continue;
-    const status = slotStatus(slot);
-    const isTest = (slot.type || 'test') === 'test';
+    const status   = slotStatus(slot);
+    const type     = slot.type || 'test';
+    const hasTeams = (slot.teams || []).length > 0;
     el.classList.toggle('slot-active',    status === 'active');
     el.classList.toggle('slot-done',      status === 'past');
-    el.classList.toggle('slot-clickable', status === 'past' && isTest);
+    el.classList.toggle('slot-clickable', hasTeams && (type === 'test' || type === 'mapping'));
   }
   if (comp.active) updateNowLine();
 }
@@ -500,7 +502,8 @@ function renderSlotBlocks(days, arenas, openMin) {
     block.style.cssText = `top:${topPx}px;height:${heightPx}px;`;
 
     const metaParts = [slot.time];
-    if (type === 'test' && teamCount) metaParts.push(teamCount + ' team' + (teamCount !== 1 ? 's' : ''));
+    if (type === 'test' && teamCount)    metaParts.push(teamCount + ' team' + (teamCount !== 1 ? 's' : ''));
+    if (type === 'mapping' && teamCount) metaParts.push(teamCount + ' × 10 min');
     if (slot.referee) metaParts.push(slot.referee);
     block.innerHTML = `
       <div class="comp-sched-slot-name">${displayName}</div>
@@ -551,6 +554,33 @@ function openSlotPanel(slot) {
   const body = document.getElementById('slot-panel-body');
   if (!teams.length) {
     body.innerHTML = '<div class="slot-panel-empty">No teams in this slot.</div>';
+  } else if (slot.type === 'mapping') {
+    const slotStart = timeToMinutes(slot.time || '00:00');
+    body.innerHTML = teams.map((t, idx) => {
+      const startTime = minutesToTime(slotStart + (t.startOffset ?? idx * 10));
+      return `
+        <div class="slot-panel-team-row">
+          <div class="slot-panel-team-left">
+            <span class="slot-panel-team-name">${t.teamName}</span>
+          </div>
+          <div class="slot-panel-team-right">
+            <span class="slot-panel-status">${startTime}</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } else if (slotStatus(slot) !== 'past') {
+    body.innerHTML = teams.map((t, idx) => `
+      <div class="slot-panel-team-row">
+        <div class="slot-panel-team-left">
+          <span class="slot-panel-dot"></span>
+          <span class="slot-panel-team-name">${t.teamName}</span>
+        </div>
+        <div class="slot-panel-team-right">
+          <span class="slot-panel-status">#${idx + 1}</span>
+        </div>
+      </div>
+    `).join('');
   } else {
     body.innerHTML = teams.map(t => {
       const run    = runs[`${slot.id}_${t.teamId}`];
