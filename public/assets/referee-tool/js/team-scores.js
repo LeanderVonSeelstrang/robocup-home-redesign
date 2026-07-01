@@ -5,7 +5,7 @@
 // (referees/admins only) — submitted sheets load locked but can be unlocked there.
 import { db, ensureAuth } from './firebase.js';
 import {
-  doc, collection, getDoc, getDocs, onSnapshot
+  doc, collection, getDoc, getDocs, onSnapshot, query, where
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
 
 const base          = window.__siteBase || '';
@@ -36,12 +36,18 @@ async function init() {
   document.getElementById('ts-loading').hidden = true;
   document.getElementById('ts-page').hidden    = false;
 
-  onSnapshot(collection(db, 'competitions', compId, 'runs'), snap => {
-    const teamRuns = snap.docs
-      .map(d => ({ id: d.id, ...d.data() }))
-      .filter(r => String(r.teamId) === String(teamId));
-    render(teamRuns);
-  });
+  // Realtime, scoped to this team's runs server-side (teamId is stored as a string) so we
+  // never download the whole runs collection. The tolerant client-side String() filter
+  // stays as a safety net against any type drift in older data.
+  onSnapshot(
+    query(collection(db, 'competitions', compId, 'runs'), where('teamId', '==', String(teamId))),
+    snap => {
+      const teamRuns = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(r => String(r.teamId) === String(teamId));
+      render(teamRuns);
+    }
+  );
 }
 
 // ── HELPERS ────────────────────────────────────────────────────────────────────

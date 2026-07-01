@@ -1,6 +1,6 @@
 import { db, ensureAuth } from './firebase.js';
 import {
-  collection, doc, getDoc, getDocs, onSnapshot, query, orderBy, limit
+  collection, doc, getDoc, getDocs, getDocsFromCache, onSnapshot, query, where, orderBy, limit
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
 import qrcode from './vendor/qrcode.js';
 
@@ -78,35 +78,46 @@ async function init() {
 // ── COMPETITION PICKER ────────────────────────────────────────────────────────
 
 async function showCompPicker() {
-  const snap = await getDocs(collection(db, 'competitions'));
-  const comps = snap.docs
-    .map(d => ({ id: d.id, ...d.data() }))
-    .filter(c => c.name && c.active)
-    .sort((a, b) => {
-      if (a.adminCreated !== b.adminCreated) return a.adminCreated ? -1 : 1;
-      return (b.year || 0) - (a.year || 0);
-    });
+  const compsRef = collection(db, 'competitions');
 
-  const list = document.getElementById('comp-list');
-  list.innerHTML = '';
+  // Paint from cache instantly (from a prior visit / another page), then refresh from the
+  // server. build() clears and re-renders, so calling it twice is safe.
+  const build = (docs) => {
+    const comps = docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(c => c.name && c.active)
+      .sort((a, b) => {
+        if (a.adminCreated !== b.adminCreated) return a.adminCreated ? -1 : 1;
+        return (b.year || 0) - (a.year || 0);
+      });
 
-  for (const comp of comps) {
-    const btn = document.createElement('button');
-    btn.className = 'picker-item';
-    btn.innerHTML = `
-      <div>
-        <div>${comp.name}</div>
-        ${comp.city || comp.country
-          ? `<div class="picker-item-sub">${[comp.city, comp.country].filter(Boolean).join(', ')}</div>`
-          : ''}
-      </div>
-      <span class="picker-item-arrow">›</span>
-    `;
-    btn.addEventListener('click', () => selectCompetition(comp));
-    list.appendChild(btn);
-  }
+    const list = document.getElementById('comp-list');
+    list.innerHTML = '';
+    for (const comp of comps) {
+      const btn = document.createElement('button');
+      btn.className = 'picker-item';
+      btn.innerHTML = `
+        <div>
+          <div>${comp.name}</div>
+          ${comp.city || comp.country
+            ? `<div class="picker-item-sub">${[comp.city, comp.country].filter(Boolean).join(', ')}</div>`
+            : ''}
+        </div>
+        <span class="picker-item-arrow">›</span>
+      `;
+      btn.addEventListener('click', () => selectCompetition(comp));
+      list.appendChild(btn);
+    }
+    showScreen('screen-comp');
+  };
 
-  showScreen('screen-comp');
+  try {
+    const cached = await getDocsFromCache(compsRef);
+    if (!cached.empty) build(cached.docs);
+  } catch (_) { /* no cache yet */ }
+
+  const fresh = await getDocs(compsRef);
+  build(fresh.docs);
 }
 
 // ── ARENA PICKER ──────────────────────────────────────────────────────────────
@@ -202,9 +213,9 @@ function selectArena(arena) {
     showResultsQr   = data.showResultsQr === true;
   });
 
-  // Subscribe to slots — we need these to know which slots belong to this arena
+  // Subscribe to this arena's slots only — other arenas' slots are never displayed here.
   unsubSlots = onSnapshot(
-    collection(db, 'competitions', selectedCompId, 'slots'),
+    query(collection(db, 'competitions', selectedCompId, 'slots'), where('arena', '==', selectedArena)),
     snap => {
       competitionSlots = {};
       snap.docs.forEach(d => { competitionSlots[d.id] = { id: d.id, ...d.data() }; });

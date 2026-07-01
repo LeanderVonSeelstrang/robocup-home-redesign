@@ -4,7 +4,7 @@
 // Signing in with an admin account (the `admin` custom claim) reveals the
 // admin navigation; referees and anonymous visitors never see it.
 import { db, ensureAuth, ensureRefereeAuth, signOut, auth, onAuthStateChanged } from './firebase.js';
-import { collection, doc, getDocs, setDoc } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
+import { collection, doc, getDocs, getDocsFromCache, setDoc } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
 
 const base       = window.__siteBase || '';
 const LS_KEY     = 'referee.lastCompetition';
@@ -101,10 +101,11 @@ signoutBtn.addEventListener('click', async () => {
 });
 
 // ── COMPETITION PICKER ──────────────────────────────────────────────────────
-async function loadCompetitions() {
-  const snap  = await getDocs(collection(db, 'competitions'));
-  const comps = snap.docs
-    .map(d => ({ id: d.id, ...d.data() }))
+
+// Populate the dropdown from a raw list of competition docs. Called twice by
+// loadCompetitions (cache paint, then server refresh); idempotent.
+function buildPicker(comps) {
+  comps = comps
     .filter(c => c.name)
     .sort((a, b) => {
       if (!!a.active !== !!b.active) return a.active ? -1 : 1;   // active first
@@ -112,16 +113,15 @@ async function loadCompetitions() {
     });
 
   compsById = Object.fromEntries(comps.map(c => [c.id, c]));
-
-  selectEl.innerHTML = '';
+  gridEl.removeAttribute('aria-busy');
 
   if (!comps.length) {
     selectEl.innerHTML = '<option>No competitions found</option>';
-    gridEl.removeAttribute('aria-busy');
     applyCompetition(null);
     return;
   }
 
+  selectEl.innerHTML = '';
   for (const c of comps) {
     const opt = document.createElement('option');
     opt.value = c.id;
@@ -133,14 +133,29 @@ async function loadCompetitions() {
   const initial    = comps.some(c => c.id === remembered) ? remembered : comps[0].id;
   selectEl.value    = initial;
   selectEl.disabled = false;
-  gridEl.removeAttribute('aria-busy');
   applyCompetition(initial);
   showFinalSecs(initial);
+}
 
+async function loadCompetitions() {
+  // Attach the change handler once, before any paint.
   selectEl.addEventListener('change', () => {
     applyCompetition(selectEl.value);
     showFinalSecs(selectEl.value);
   });
+
+  const compsRef = collection(db, 'competitions');
+
+  // Paint instantly from the IndexedDB cache if we have it (from a prior visit, or from
+  // another page that already fetched competitions), then refresh from the server. On a
+  // cold cache this just falls through to the server read.
+  try {
+    const cached = await getDocsFromCache(compsRef);
+    if (!cached.empty) buildPicker(cached.docs.map(d => ({ id: d.id, ...d.data() })));
+  } catch (_) { /* no cache yet */ }
+
+  const fresh = await getDocs(compsRef);
+  buildPicker(fresh.docs.map(d => ({ id: d.id, ...d.data() })));
 }
 
 async function init() {
