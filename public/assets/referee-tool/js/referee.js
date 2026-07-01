@@ -25,6 +25,10 @@ const DEFAULT_OCCUPANCY = 100;
 const occupancyEl       = document.getElementById('stream-occupancy');
 const occupancyStatusEl = document.getElementById('stream-occupancy-status');
 
+const DEFAULT_PILL_OPACITY = 72;
+const pillOpacityEl        = document.getElementById('stream-pill-opacity');
+const pillOpacityStatusEl  = document.getElementById('stream-pill-opacity-status');
+
 // Competition data by id (kept so the final-result field can show each comp's value).
 let compsById   = {};
 let isAdminUser = false;
@@ -126,6 +130,38 @@ async function saveStreamOccupancy() {
 
 occupancyEl.addEventListener('change', saveStreamOccupancy);
 
+// Show the selected competition's info-pill opacity (defaults to 72%).
+function showStreamPillOpacity(compId) {
+  const op = compsById[compId]?.streamPillOpacity;
+  pillOpacityEl.value = Number.isFinite(op) ? op : DEFAULT_PILL_OPACITY;
+}
+
+async function saveStreamPillOpacity() {
+  if (!isAdminUser) return;
+  const compId = selectEl.value;
+  if (!compId) return;
+
+  let op = parseFloat(pillOpacityEl.value);
+  if (!Number.isFinite(op)) op = DEFAULT_PILL_OPACITY;
+  op = Math.min(100, Math.max(30, op));
+  pillOpacityEl.value = op;                  // reflect the clamped value
+
+  pillOpacityStatusEl.textContent = 'Saving…';
+  try {
+    await setDoc(doc(db, 'competitions', compId), { streamPillOpacity: op }, { merge: true });
+    if (compsById[compId]) compsById[compId].streamPillOpacity = op;
+    pillOpacityStatusEl.textContent = 'Saved ✓';
+    setTimeout(() => {
+      if (pillOpacityStatusEl.textContent === 'Saved ✓') pillOpacityStatusEl.textContent = '';
+    }, 2000);
+  } catch (err) {
+    console.error(err);
+    pillOpacityStatusEl.textContent = 'Save failed';
+  }
+}
+
+pillOpacityEl.addEventListener('change', saveStreamPillOpacity);
+
 signinBtn.addEventListener('click', () => {
   // ensureRefereeAuth drives the #referee-login-overlay; onAuthStateChanged updates the UI.
   ensureRefereeAuth().catch(() => { /* cancelled / no overlay */ });
@@ -172,6 +208,7 @@ function buildPicker(comps) {
   applyCompetition(initial);
   showFinalSecs(initial);
   showStreamOccupancy(initial);
+  showStreamPillOpacity(initial);
 }
 
 async function loadCompetitions() {
@@ -180,6 +217,7 @@ async function loadCompetitions() {
     applyCompetition(selectEl.value);
     showFinalSecs(selectEl.value);
     showStreamOccupancy(selectEl.value);
+    showStreamPillOpacity(selectEl.value);
   });
 
   const compsRef = collection(db, 'competitions');

@@ -97,11 +97,21 @@ function startArena() {
     const v = Number(data.finalResultSecs);
     finalResultSecs = Number.isFinite(v) && v >= 0 ? v : 10;
 
+    const overlayEl = document.getElementById('overlay');
+
     // streamOccupancy: 30–100 (%). Unset/invalid ⇒ 100. Scales the name pills' width.
     let occ = Number(data.streamOccupancy);
     if (!Number.isFinite(occ)) occ = 100;
     occ = Math.min(100, Math.max(30, occ));
-    document.getElementById('overlay').style.setProperty('--ov-occupancy', occ / 100);
+    overlayEl.style.setProperty('--ov-occupancy', occ / 100);
+
+    // streamPillOpacity: 30–100 (%). Unset/invalid ⇒ 72 (the original look).
+    // Controls how opaque/black the info-pill backgrounds are.
+    let alpha = Number(data.streamPillOpacity);
+    if (!Number.isFinite(alpha)) alpha = 72;
+    alpha = Math.min(100, Math.max(30, alpha));
+    overlayEl.style.setProperty('--pill-alpha', alpha / 100);
+
     if (activeRunId) fitTestName();   // available width changed — re-fit the name
   });
 
