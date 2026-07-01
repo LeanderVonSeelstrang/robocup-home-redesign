@@ -1,9 +1,13 @@
 import { db, auth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from './firebase.js';
 import {
   collection, doc, addDoc, getDocs, getDoc, setDoc, updateDoc, deleteDoc,
-  writeBatch, query, where, onSnapshot
+  writeBatch, query, where, onSnapshot, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
 import { convertTexToTest } from './admin-tex.js';
+
+// Slot types not scored via /scoresheet — mirrors display.js so "Now on display"
+// reflects exactly what the live screen picks.
+const NON_TEST_SLOT_TYPES = new Set(['inspection', 'poster', 'mapping', 'other']);
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
 
@@ -526,6 +530,7 @@ async function showSlots(competitionId, competitionName) {
   document.getElementById('slots-title').textContent = competitionName;
 
   document.getElementById('new-slot-btn').onclick = () => showSchedule(competitionId, competitionName);
+  document.getElementById('live-control-btn').onclick = () => showLive(competitionId, competitionName);
 
   // Arena management
   document.getElementById('add-arena-btn').onclick = addArena;
@@ -539,6 +544,202 @@ async function showSlots(competitionId, competitionName) {
   await loadArenas();
   await loadParticipatingTeams();
   await loadTests();
+}
+
+// ── LIVE CONTROL ───────────────────────────────────────────────────────────────
+
+let liveRuns   = {};
+let liveSlots  = {};
+let liveArenas = [];
+let closeModalOpen = false;
+
+function liveEsc(str) {
+  return String(str ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+async function showLive(compId, compName) {
+  currentCompetitionId = compId;
+  setBack(() => showSlots(compId, compName));
+  showScreen('live');
+  setBreadcrumb([
+    { label: 'Competitions', onClick: showCompetitions },
+    { label: compName, onClick: () => showSlots(compId, compName) },
+    { label: 'Live control' }
+  ]);
+
+  liveRuns = {}; liveSlots = {}; closeModalOpen = false;
+  document.getElementById('close-runs-overlay').hidden = true;
+  const compSnap = await getDoc(doc(db, 'competitions', compId));
+  liveArenas = compSnap.data()?.arenas || [];
+
+  document.getElementById('close-all-runs-btn').onclick   = openCloseRunsModal;
+  document.getElementById('close-runs-modal-close').onclick = closeCloseRunsModal;
+  document.getElementById('close-runs-cancel').onclick    = closeCloseRunsModal;
+  const overlay = document.getElementById('close-runs-overlay');
+  overlay.onclick = e => { if (e.target === overlay) closeCloseRunsModal(); };
+  document.getElementById('close-runs-confirm').onclick   = () => closeAllRunning(compId);
+
+  const unsubRuns = onSnapshot(collection(db, 'competitions', compId, 'runs'), snap => {
+    liveRuns = {};
+    snap.docs.forEach(d => { liveRuns[d.id] = d.data(); });
+    renderLiveNow(compId);
+    if (closeModalOpen) renderCloseRunsList(compId);
+  });
+  const unsubSlots = onSnapshot(collection(db, 'competitions', compId, 'slots'), snap => {
+    liveSlots = {};
+    snap.docs.forEach(d => { liveSlots[d.id] = { id: d.id, ...d.data() }; });
+    renderLiveNow(compId);
+    if (closeModalOpen) renderCloseRunsList(compId);
+  });
+  _screenCleanup = () => {
+    unsubRuns(); unsubSlots();
+    closeModalOpen = false;
+    document.getElementById('close-runs-overlay').hidden = true;
+  };
+}
+
+// Describe a run for the live lists (team / test label / arena / score).
+function liveRunInfo(runId) {
+  const run  = liveRuns[runId] || {};
+  const slot = liveSlots[run.slotId] || {};
+  const type = slot.type || 'test';
+  let testLabel;
+  if      (type === 'inspection') testLabel = 'Inspection';
+  else if (type === 'poster')     testLabel = 'Poster session';
+  else if (type === 'mapping')    testLabel = 'Arena mapping';
+  else if (type === 'other')      testLabel = slot.label || 'Other';
+  else testLabel = run.testName || run.testId || slot.testId || 'Test';
+  return {
+    type,
+    arena: slot.arena || '—',
+    team:  run.teamName || run.teamId || '—',
+    score: run.totalScore ?? 0,
+    testLabel,
+  };
+}
+
+// The draft run each arena's /display is currently showing — same selection as display.js.
+function displayedRunForArena(arena) {
+  const candidates = Object.entries(liveRuns)
+    .filter(([, r]) => r.status === 'draft' && r.slotId
+      && liveSlots[r.slotId]?.arena === arena
+      && !NON_TEST_SLOT_TYPES.has(liveSlots[r.slotId]?.type))
+    .sort(([, a], [, b]) => (b.updatedAt?.seconds ?? 0) - (a.updatedAt?.seconds ?? 0));
+  return candidates[0]?.[0] ?? null;
+}
+
+function renderLiveNow(compId) {
+  const el = document.getElementById('live-now-list');
+  if (!el) return;
+  const arenaSet = new Set(liveArenas);
+  Object.values(liveSlots).forEach(s => { if (s.arena) arenaSet.add(s.arena); });
+  const arenas = [...arenaSet].sort();
+
+  el.innerHTML = '';
+  if (!arenas.length) {
+    el.innerHTML = '<div class="live-row-idle">No arenas configured.</div>';
+    return;
+  }
+  for (const arena of arenas) {
+    const runId = displayedRunForArena(arena);
+    const row = document.createElement('div');
+    row.className = 'live-row';
+    if (!runId) {
+      row.innerHTML = `<span class="live-row-arena">${liveEsc(arena)}</span><span class="live-row-idle">— idle —</span>`;
+    } else {
+      const info = liveRunInfo(runId);
+      row.innerHTML = `
+        <span class="live-row-arena">${liveEsc(arena)}</span>
+        <div class="live-row-main">
+          <span class="live-row-team">${liveEsc(info.team)}</span>
+          <span class="live-row-test">${liveEsc(info.testLabel)}</span>
+        </div>
+        <span class="live-row-score">${info.score}</span>
+        <button class="btn-ghost btn-sm" data-action="end">End</button>
+      `;
+      row.querySelector('[data-action="end"]').onclick = () => endRun(compId, runId);
+    }
+    el.appendChild(row);
+  }
+}
+
+async function endRun(compId, runId) {
+  const info = liveRunInfo(runId);
+  if (!window.confirm(`Force "${info.team} — ${info.testLabel}" off the display? This does not submit a score.`)) return;
+  try {
+    await updateDoc(doc(db, 'competitions', compId, 'runs', runId), {
+      status: 'closed', updatedAt: serverTimestamp(),
+    });
+  } catch (err) {
+    alert(`Could not close run: ${err.message}`);
+  }
+}
+
+// All currently-running (draft) runs, newest first — for the emergency close-all modal.
+function runningRunIds() {
+  return Object.entries(liveRuns)
+    .filter(([, r]) => r.status === 'draft')
+    .map(([id]) => id)
+    .sort((a, b) => (liveRuns[b].updatedAt?.seconds ?? 0) - (liveRuns[a].updatedAt?.seconds ?? 0));
+}
+
+function openCloseRunsModal() {
+  closeModalOpen = true;
+  document.getElementById('close-runs-overlay').hidden = false;
+  renderCloseRunsList(currentCompetitionId);
+}
+
+function closeCloseRunsModal() {
+  closeModalOpen = false;
+  document.getElementById('close-runs-overlay').hidden = true;
+}
+
+function renderCloseRunsList(compId) {
+  const el = document.getElementById('close-runs-list');
+  const confirmBtn = document.getElementById('close-runs-confirm');
+  if (!el) return;
+  const ids = runningRunIds();
+  el.innerHTML = '';
+  if (!ids.length) {
+    el.innerHTML = '<div class="live-row-idle">No runs are currently running.</div>';
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Close ALL running';
+    return;
+  }
+  confirmBtn.disabled = false;
+  confirmBtn.textContent = `Close ALL running (${ids.length})`;
+  for (const runId of ids) {
+    const info = liveRunInfo(runId);
+    const row = document.createElement('div');
+    row.className = 'live-row';
+    row.innerHTML = `
+      <span class="live-row-arena">${liveEsc(info.arena)}</span>
+      <div class="live-row-main">
+        <span class="live-row-team">${liveEsc(info.team)}</span>
+        <span class="live-row-test">${liveEsc(info.testLabel)}</span>
+      </div>
+      <span class="live-row-score">${info.score}</span>
+      <button class="btn-ghost btn-sm" data-action="end">End</button>
+    `;
+    row.querySelector('[data-action="end"]').onclick = () => endRun(compId, runId);
+    el.appendChild(row);
+  }
+}
+
+async function closeAllRunning(compId) {
+  const ids = runningRunIds();
+  if (!ids.length) { closeCloseRunsModal(); return; }
+  if (!window.confirm(`Close ${ids.length} running run${ids.length !== 1 ? 's' : ''}? They will be removed from the display and will NOT count on the results leaderboard.`)) return;
+  try {
+    const batch = writeBatch(db);
+    ids.forEach(id => batch.update(doc(db, 'competitions', compId, 'runs', id), {
+      status: 'closed', updatedAt: serverTimestamp(),
+    }));
+    await batch.commit();
+    closeCloseRunsModal();
+  } catch (err) {
+    alert(`Could not close runs: ${err.message}`);
+  }
 }
 
 // ── ARENA MANAGEMENT ─────────────────────────────────────────────────────────

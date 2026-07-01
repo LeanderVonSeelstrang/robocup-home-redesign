@@ -21,6 +21,10 @@ const adminEl    = document.getElementById('ref-admin-section');
 const finalSecsEl   = document.getElementById('final-secs');
 const finalStatusEl = document.getElementById('final-secs-status');
 
+const DEFAULT_OCCUPANCY = 100;
+const occupancyEl       = document.getElementById('stream-occupancy');
+const occupancyStatusEl = document.getElementById('stream-occupancy-status');
+
 // Competition data by id (kept so the final-result field can show each comp's value).
 let compsById   = {};
 let isAdminUser = false;
@@ -90,6 +94,38 @@ async function saveFinalSecs() {
 
 finalSecsEl.addEventListener('change', saveFinalSecs);
 
+// Show the selected competition's configured stream overlay size (defaults to 100%).
+function showStreamOccupancy(compId) {
+  const occ = compsById[compId]?.streamOccupancy;
+  occupancyEl.value = Number.isFinite(occ) ? occ : DEFAULT_OCCUPANCY;
+}
+
+async function saveStreamOccupancy() {
+  if (!isAdminUser) return;
+  const compId = selectEl.value;
+  if (!compId) return;
+
+  let occ = parseFloat(occupancyEl.value);
+  if (!Number.isFinite(occ)) occ = DEFAULT_OCCUPANCY;
+  occ = Math.min(100, Math.max(30, occ));
+  occupancyEl.value = occ;                  // reflect the clamped value
+
+  occupancyStatusEl.textContent = 'Saving…';
+  try {
+    await setDoc(doc(db, 'competitions', compId), { streamOccupancy: occ }, { merge: true });
+    if (compsById[compId]) compsById[compId].streamOccupancy = occ;
+    occupancyStatusEl.textContent = 'Saved ✓';
+    setTimeout(() => {
+      if (occupancyStatusEl.textContent === 'Saved ✓') occupancyStatusEl.textContent = '';
+    }, 2000);
+  } catch (err) {
+    console.error(err);
+    occupancyStatusEl.textContent = 'Save failed';
+  }
+}
+
+occupancyEl.addEventListener('change', saveStreamOccupancy);
+
 signinBtn.addEventListener('click', () => {
   // ensureRefereeAuth drives the #referee-login-overlay; onAuthStateChanged updates the UI.
   ensureRefereeAuth().catch(() => { /* cancelled / no overlay */ });
@@ -135,6 +171,7 @@ function buildPicker(comps) {
   selectEl.disabled = false;
   applyCompetition(initial);
   showFinalSecs(initial);
+  showStreamOccupancy(initial);
 }
 
 async function loadCompetitions() {
@@ -142,6 +179,7 @@ async function loadCompetitions() {
   selectEl.addEventListener('change', () => {
     applyCompetition(selectEl.value);
     showFinalSecs(selectEl.value);
+    showStreamOccupancy(selectEl.value);
   });
 
   const compsRef = collection(db, 'competitions');

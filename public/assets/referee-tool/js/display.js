@@ -4,6 +4,9 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
 import qrcode from './vendor/qrcode.js';
 
+// Slot types that are not scored via /scoresheet — runs on these never go live on /display.
+const NON_TEST_SLOT_TYPES = new Set(['inspection', 'poster', 'mapping', 'other']);
+
 // ── STATE ─────────────────────────────────────────────────────────────────────
 
 let selectedCompId   = null;
@@ -258,9 +261,14 @@ function checkActiveRun() {
       .map(([id]) => id)
   );
 
-  // Draft runs for those slots, most recently updated first
+  // Draft runs for those slots, most recently updated first.
+  // Exclude runs on non-scored slot types (inspection/poster/mapping/other) — an
+  // in-progress inspection writes a draft run doc but has no test/score/timer, so it
+  // must never take over the live screen. Exclusion list (not a 'test' whitelist) so
+  // Finals and any future scored slot type keep working.
   const candidates = Object.entries(currentRuns)
-    .filter(([, r]) => r.status === 'draft' && r.slotId && arenaSlotIds.has(r.slotId))
+    .filter(([, r]) => r.status === 'draft' && r.slotId && arenaSlotIds.has(r.slotId)
+      && !NON_TEST_SLOT_TYPES.has(competitionSlots[r.slotId]?.type))
     .sort(([, a], [, b]) => (b.updatedAt?.seconds ?? 0) - (a.updatedAt?.seconds ?? 0));
 
   const newActiveRunId = candidates[0]?.[0] ?? null;
