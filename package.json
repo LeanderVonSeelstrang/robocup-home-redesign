@@ -5,6 +5,8 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
+    "local": "bash scripts/local.sh",
+    "local:fresh": "bash scripts/local.sh --fresh",
     "emulator": "firebase emulators:start --project robocup-home --export-on-exit=./emulator-data $([ -d emulator-data ] && echo --import=./emulator-data)",
     "seed": "cd scripts && npm run seed:emulator"
   },

@@ -1805,17 +1805,43 @@ function showPosterManagement(slot, backFn) {
   _screenCleanup = unsubscribe;
 }
 
+// Scale raw 1–10 scores to 5–50, drop N highest and N lowest, return mean.
+// Falls back to plain mean when fewer than 2N+1 scores are available.
+const POSTER_OUTLIER_N = 2;
+function calcPosterScore(rawScores) {
+  if (!rawScores.length) return null;
+  const scaled = rawScores.map(s => s * 5);
+  if (scaled.length <= 2 * POSTER_OUTLIER_N) {
+    return scaled.reduce((a, b) => a + b, 0) / scaled.length;
+  }
+  const sorted  = [...scaled].sort((a, b) => a - b);
+  const trimmed = sorted.slice(POSTER_OUTLIER_N, sorted.length - POSTER_OUTLIER_N);
+  return trimmed.reduce((a, b) => a + b, 0) / trimmed.length;
+}
+
 function renderPosterMatrix(container, teams, byJudge) {
-  // Calculate averages per presenter
-  const averages = {};
+  // Collect raw scores and compute final score per presenter
+  const finalScores = {};
+  const outlierSets = {};  // presenterTeamId → Set of judge teamIds whose scores are dropped
   for (const presenter of teams) {
-    const scores = teams
+    const judgeScores = teams
       .filter(j => j.teamId !== presenter.teamId)
-      .map(j => (byJudge[j.teamId] || {})[presenter.teamId])
-      .filter(s => s !== undefined);
-    averages[presenter.teamId] = scores.length
-      ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1)
-      : '—';
+      .map(j => ({ judgeId: j.teamId, raw: (byJudge[j.teamId] || {})[presenter.teamId] }))
+      .filter(e => e.raw !== undefined);
+
+    const score = calcPosterScore(judgeScores.map(e => e.raw));
+    finalScores[presenter.teamId] = score !== null ? score.toFixed(1) : '—';
+
+    // Identify which judges are outliers (only meaningful when enough scores exist)
+    const dropped = new Set();
+    if (judgeScores.length > 2 * POSTER_OUTLIER_N) {
+      const sorted = [...judgeScores].sort((a, b) => a.raw - b.raw);
+      for (let i = 0; i < POSTER_OUTLIER_N; i++) {
+        dropped.add(sorted[i].judgeId);                           // lowest N
+        dropped.add(sorted[sorted.length - 1 - i].judgeId);      // highest N
+      }
+    }
+    outlierSets[presenter.teamId] = dropped;
   }
 
   let html = '<div class="poster-matrix-scroll"><table class="poster-matrix-table"><thead>';
@@ -1830,15 +1856,17 @@ function renderPosterMatrix(container, teams, byJudge) {
       if (judge.teamId === presenter.teamId) {
         html += '<td class="pm-self">—</td>';
       } else {
-        const s = jScores[presenter.teamId];
-        html += `<td class="pm-score${s !== undefined ? ' has-score' : ''}">${s !== undefined ? s : '·'}</td>`;
+        const s         = jScores[presenter.teamId];
+        const isOutlier = s !== undefined && outlierSets[presenter.teamId]?.has(judge.teamId);
+        const cls       = ['pm-score', s !== undefined ? 'has-score' : '', isOutlier ? 'pm-outlier' : ''].join(' ').trim();
+        html += `<td class="${cls}" title="${isOutlier ? 'dropped as outlier' : ''}">${s !== undefined ? s : '·'}</td>`;
       }
     }
     html += '</tr>';
   }
 
-  html += '</tbody><tfoot><tr class="pm-avg-row"><th class="pm-row-head">Average</th>';
-  for (const t of teams) html += `<td class="pm-avg">${averages[t.teamId]}</td>`;
+  html += `</tbody><tfoot><tr class="pm-avg-row"><th class="pm-row-head">Score (/50)</th>`;
+  for (const t of teams) html += `<td class="pm-avg">${finalScores[t.teamId]}</td>`;
   html += '</tr></tfoot></table></div>';
   container.innerHTML = html;
 }

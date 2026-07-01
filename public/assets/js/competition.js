@@ -746,14 +746,15 @@ async function openPosterPanel(slotId, body) {
     return;
   }
 
-  // Aggregate scores per presenter
-  const totals = {};  // presenterTeamId → { sum, count, teamName }
+  // Collect raw scores per presenter from all judges
+  const OUTLIER_N = 2;
+  const rawByPresenter = {};  // presenterTeamId → [raw scores]
   snap.docs.forEach(d => {
-    const { scores = {} } = d.data();
+    const { judgeTeamId, scores = {} } = d.data();
     for (const [presenterTeamId, score] of Object.entries(scores)) {
-      if (!totals[presenterTeamId]) totals[presenterTeamId] = { sum: 0, count: 0 };
-      totals[presenterTeamId].sum   += score;
-      totals[presenterTeamId].count += 1;
+      if (presenterTeamId === judgeTeamId) continue; // skip self
+      if (!rawByPresenter[presenterTeamId]) rawByPresenter[presenterTeamId] = [];
+      rawByPresenter[presenterTeamId].push(score);
     }
   });
 
@@ -761,14 +762,19 @@ async function openPosterPanel(slotId, body) {
   const teamNames = {};
   (comp.participatingTeams || []).forEach(t => { teamNames[t.teamId] = t.teamName; });
 
-  const ranked = Object.entries(totals)
-    .map(([teamId, { sum, count }]) => ({
-      teamId,
-      teamName: teamNames[teamId] || teamId,
-      avg: sum / count,
-      count,
-    }))
-    .sort((a, b) => b.avg - a.avg);
+  // Apply scoring formula: scale ×5, drop N highest+lowest, mean of remainder
+  const ranked = Object.entries(rawByPresenter).map(([teamId, raws]) => {
+    const scaled  = raws.map(s => s * 5);
+    let finalScore;
+    if (scaled.length <= 2 * OUTLIER_N) {
+      finalScore = scaled.reduce((a, b) => a + b, 0) / scaled.length;
+    } else {
+      const sorted  = [...scaled].sort((a, b) => a - b);
+      const trimmed = sorted.slice(OUTLIER_N, sorted.length - OUTLIER_N);
+      finalScore    = trimmed.reduce((a, b) => a + b, 0) / trimmed.length;
+    }
+    return { teamId, teamName: teamNames[teamId] || teamId, score: finalScore, count: raws.length };
+  }).sort((a, b) => b.score - a.score);
 
   body.innerHTML = ranked.map((r, i) => `
     <div class="slot-panel-team-row">
@@ -776,7 +782,8 @@ async function openPosterPanel(slotId, body) {
         <span class="slot-panel-team-name">${r.teamName}</span>
       </div>
       <div class="slot-panel-team-right">
-        <span class="slot-panel-score">${r.avg.toFixed(1)} <span style="font-weight:400;opacity:.6;font-size:.85em">(${r.count} votes)</span></span>
+        <span class="slot-panel-score">${r.score.toFixed(1)}<span style="font-weight:400;opacity:.6;font-size:.75em"> /50</span>
+          <span style="font-weight:400;opacity:.5;font-size:.8em;margin-left:4px">(${r.count} judges)</span></span>
       </div>
     </div>
   `).join('');
