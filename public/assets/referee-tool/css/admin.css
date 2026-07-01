@@ -562,6 +562,14 @@ select option { background: #1e1f22; }
 }
 .sched-test-card.type-poster:hover { background: rgba(255,160,60,0.16); }
 
+/* Open Challenge — teal */
+.sched-test-card.type-open_challenge {
+  background: rgba(46,196,182,0.08);
+  border-color: rgba(46,196,182,0.28);
+  color: #2ec4b6;
+}
+.sched-test-card.type-open_challenge:hover { background: rgba(46,196,182,0.16); }
+
 /* Other — grey */
 .sched-test-card.type-other {
   background: rgba(255,255,255,0.04);
@@ -819,6 +827,15 @@ select option { background: #1e1f22; }
 .sched-slot-block.type-poster .sched-slot-name { color: #ffa03c; }
 .sched-slot-block.type-poster .sched-slot-del { border-left-color: rgba(255,160,60,0.18); }
 .sched-slot-block.type-poster .sched-slot-resize::after { background: #ffa03c; }
+
+.sched-slot-block.type-open_challenge {
+  background: rgba(46,196,182,0.14);
+  border-color: rgba(46,196,182,0.5);
+}
+.sched-slot-block.type-open_challenge:hover { background: rgba(46,196,182,0.24); }
+.sched-slot-block.type-open_challenge .sched-slot-name { color: #2ec4b6; }
+.sched-slot-block.type-open_challenge .sched-slot-del { border-left-color: rgba(46,196,182,0.18); }
+.sched-slot-block.type-open_challenge .sched-slot-resize::after { background: #2ec4b6; }
 
 .sched-slot-block.type-other {
   background: rgba(255,255,255,0.05);

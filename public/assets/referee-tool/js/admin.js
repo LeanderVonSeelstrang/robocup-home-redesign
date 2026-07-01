@@ -1084,21 +1084,23 @@ async function showSlotTeams(slotId, testName, slot, backFn) {
     searchEl.dispatchEvent(new Event('input'));
   };
 
-  // Poster slot: show Manage Session button, hide referee/link sections
-  const isPoster       = slot.type === 'poster';
-  const manageBtn      = document.getElementById('poster-manage-btn');
-  const refereeCard    = document.getElementById('slot-referee-input').closest('.card');
-  const slotLinkBox    = document.getElementById('slot-link-box');
-  manageBtn.hidden     = !isPoster;
-  refereeCard.hidden   = isPoster;
-  slotLinkBox.hidden   = isPoster;
+  // Poster: show Manage Session button, hide referee/link
+  // Open Challenge: hide referee/link (no scoring), no Manage button
+  const isPoster          = slot.type === 'poster';
+  const isNoScore         = isPoster || slot.type === 'open_challenge';
+  const manageBtn         = document.getElementById('poster-manage-btn');
+  const refereeCard       = document.getElementById('slot-referee-input').closest('.card');
+  const slotLinkBox       = document.getElementById('slot-link-box');
+  manageBtn.hidden        = !isPoster;
+  refereeCard.hidden      = isNoScore;
+  slotLinkBox.hidden      = isNoScore;
   if (isPoster) {
     manageBtn.onclick = () =>
       showPosterManagement(slot, () => showSlotTeams(slotId, testName, slot, backFn));
   }
 
-  // Referee field (non-poster only)
-  if (!isPoster) {
+  // Referee field (scored slots only)
+  if (!isNoScore) {
     const refereeInput = document.getElementById('slot-referee-input');
     refereeInput.value = slot.referee || '';
     const saveReferee = async () => {
@@ -1112,7 +1114,7 @@ async function showSlotTeams(slotId, testName, slot, backFn) {
   }
 
   renderTeamList(slot);
-  if (!isPoster) updateSlotLink(slot);
+  if (!isNoScore) updateSlotLink(slot);
 }
 
 async function addTeamToSlot(slot, team) {
@@ -1127,9 +1129,10 @@ async function addTeamToSlot(slot, team) {
 function renderTeamList(slot) {
   const list       = document.getElementById('team-list');
   const teams      = slot.teams || [];
-  const isMapping  = slot.type === 'mapping';
-  const isPoster   = slot.type === 'poster';
-  const slotStart  = isMapping ? timeToMinutes(slot.time || '00:00') : 0;
+  const isMapping       = slot.type === 'mapping';
+  const isPoster        = slot.type === 'poster';
+  const isOpenChallenge = slot.type === 'open_challenge';
+  const slotStart       = isMapping ? timeToMinutes(slot.time || '00:00') : 0;
   list.innerHTML = '';
 
   if (!teams.length) {
@@ -1140,8 +1143,9 @@ function renderTeamList(slot) {
   teams.forEach((team, idx) => {
     const row = document.createElement('div');
     row.className = 'team-row';
-    const meta = isMapping ? minutesToTime(slotStart + (team.startOffset ?? idx * 10))
-               : isPoster  ? 'Presenter'
+    const meta = isMapping       ? minutesToTime(slotStart + (team.startOffset ?? idx * 10))
+               : isPoster        ? 'Presenter'
+               : isOpenChallenge ? `Slot ${idx + 1}`
                : `ID: ${team.teamId}`;
     row.innerHTML = `
       <span class="team-order">${idx + 1}</span>
@@ -1542,10 +1546,11 @@ async function handleScheduleDrop(slotType, testId, label, col, startMinutes) {
 
 function slotDisplayName(slot) {
   const type = slot.type || 'test';
-  if (type === 'inspection') return 'Robot Inspection';
-  if (type === 'poster')     return 'Poster Session';
-  if (type === 'mapping')    return 'Arena Mapping';
-  if (type === 'other')      return slot.label || 'Other Event';
+  if (type === 'inspection')     return 'Robot Inspection';
+  if (type === 'poster')         return 'Poster Session';
+  if (type === 'open_challenge') return 'Open Challenge';
+  if (type === 'mapping')        return 'Arena Mapping';
+  if (type === 'other')          return slot.label || 'Other Event';
   return (compTests.find(t => t.id === slot.testId) || {}).name || slot.testId || '—';
 }
 
@@ -1600,7 +1605,7 @@ function renderSlotBlock(slot) {
 
   block.querySelector('.sched-slot-inner').addEventListener('click', () => {
     const back = () => showSchedule(schedState.compId, schedState.compName);
-    if (!['test', 'inspection', 'mapping', 'poster'].includes(type)) return;
+    if (!['test', 'inspection', 'mapping', 'poster', 'open_challenge'].includes(type)) return;
     showSlotTeams(slot.id, name, slot, back);
   });
 
@@ -1735,9 +1740,10 @@ function buildScheduleSidebar() {
 
   // ── SPECIAL BLOCKS ─────────────────────────────────────────────────
   el.appendChild(makeSidebarLabel('Special'));
-  el.appendChild(makeSpecialCard('inspection', 'Robot Inspection', 'type-inspection'));
-  el.appendChild(makeSpecialCard('poster',     'Poster Session',   'type-poster'));
-  el.appendChild(makeSpecialCard('mapping',    'Arena Mapping',    'type-mapping'));
+  el.appendChild(makeSpecialCard('inspection',     'Robot Inspection', 'type-inspection'));
+  el.appendChild(makeSpecialCard('poster',         'Poster Session',   'type-poster'));
+  el.appendChild(makeSpecialCard('open_challenge', 'Open Challenge',   'type-open_challenge'));
+  el.appendChild(makeSpecialCard('mapping',        'Arena Mapping',    'type-mapping'));
 
   // ── OTHER EVENT ────────────────────────────────────────────────────
   el.appendChild(makeSidebarLabel('Other'));
