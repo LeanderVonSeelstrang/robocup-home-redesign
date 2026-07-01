@@ -139,7 +139,7 @@ function applyTeamFilter() {
     const slot = slots[el.dataset.slotId];
     if (!slot) { el.hidden = true; return; }
     const type = slot.type || 'test';
-    if (type !== 'test' && type !== 'mapping') { el.hidden = true; return; }
+    if (type !== 'test' && type !== 'mapping' && type !== 'inspection') { el.hidden = true; return; }
     const teamEntry = (slot.teams || []).find(t => t.teamId === activeTeamFilter);
     el.hidden = !teamEntry;
     if (teamEntry) {
@@ -490,7 +490,7 @@ function updateSlotStates() {
     const hasTeams = (slot.teams || []).length > 0;
     el.classList.toggle('slot-active',    status === 'active');
     el.classList.toggle('slot-done',      status === 'past');
-    el.classList.toggle('slot-clickable', type === 'poster' || (hasTeams && (type === 'test' || type === 'mapping')));
+    el.classList.toggle('slot-clickable', type === 'poster' || (hasTeams && (type === 'test' || type === 'mapping' || type === 'inspection')));
   }
   if (comp.active) updateNowLine();
 }
@@ -592,7 +592,7 @@ function renderSlotBlocks(days, arenas, openMin) {
     block.style.cssText = `top:${topPx}px;height:${heightPx}px;`;
 
     const metaParts = [slot.time];
-    if (type === 'test' && teamCount)    metaParts.push(teamCount + ' team' + (teamCount !== 1 ? 's' : ''));
+    if ((type === 'test' || type === 'inspection') && teamCount) metaParts.push(teamCount + ' team' + (teamCount !== 1 ? 's' : ''));
     if (type === 'mapping' && teamCount) metaParts.push(teamCount + ' × 10 min');
     if (slot.referee) metaParts.push(slot.referee);
     const defaultMeta = metaParts.join(' · ');
@@ -646,6 +646,18 @@ function openSlotPanel(slot) {
   const body = document.getElementById('slot-panel-body');
   if (slot.type === 'poster') {
     openPosterPanel(slot.id, body);
+  } else if (slot.type === 'inspection') {
+    body.innerHTML = teams.map((t, idx) => `
+      <div class="slot-panel-team-row">
+        <div class="slot-panel-team-left">
+          <span class="slot-panel-dot"></span>
+          <span class="slot-panel-team-name">${t.teamName}</span>
+        </div>
+        <div class="slot-panel-team-right">
+          <span class="slot-panel-status">#${idx + 1}</span>
+        </div>
+      </div>
+    `).join('');
   } else if (!teams.length) {
     body.innerHTML = '<div class="slot-panel-empty">No teams in this slot.</div>';
   } else if (slot.type === 'mapping') {
