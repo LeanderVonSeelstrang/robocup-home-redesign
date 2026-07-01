@@ -1,6 +1,6 @@
 import { db, ensureRefereeAuth } from './firebase.js';
 import {
-  doc, getDoc, setDoc, serverTimestamp
+  doc, getDoc, setDoc, deleteDoc, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
 
 const p             = new URLSearchParams(window.location.search);
@@ -86,6 +86,7 @@ async function init() {
   }
 
   renderAll();
+  wireOneTimeButtons();
 
   if (submitted) lockForm();
 
@@ -121,13 +122,33 @@ function renderAll() {
     }
   }
 
-  // Result buttons
+  // Result buttons (re-assigned each render; safe because onclick replaces)
   renderResult();
-  document.getElementById('btn-pass').onclick = () => setResult('pass');
-  document.getElementById('btn-fail').onclick = () => setResult('fail');
+  document.getElementById('btn-pass').onclick   = () => setResult('pass');
+  document.getElementById('btn-fail').onclick   = () => setResult('fail');
   document.getElementById('submit-btn').onclick = submitInspection;
 
   updateSubmitBtn();
+}
+
+function wireOneTimeButtons() {
+  document.getElementById('reset-btn').onclick = () => {
+    document.getElementById('reset-confirm').hidden = false;
+  };
+  document.getElementById('reset-confirm-cancel').onclick = () => {
+    document.getElementById('reset-confirm').hidden = true;
+  };
+  document.getElementById('reset-confirm-ok').onclick = async () => {
+    document.getElementById('reset-confirm').hidden = true;
+    await resetInspection();
+  };
+  document.getElementById('unlock-confirm-cancel').onclick = () => {
+    document.getElementById('unlock-confirm').hidden = true;
+  };
+  document.getElementById('unlock-confirm-ok').onclick = async () => {
+    document.getElementById('unlock-confirm').hidden = true;
+    await unlockForm();
+  };
 }
 
 function renderResult() {
@@ -201,7 +222,53 @@ function lockForm() {
   document.querySelectorAll('.insp-textarea').forEach(el => el.disabled = true);
   document.getElementById('btn-pass').disabled = true;
   document.getElementById('btn-fail').disabled = true;
+  document.getElementById('unlock-btn').hidden = false;
+  document.getElementById('unlock-btn').onclick = () => {
+    document.getElementById('unlock-confirm').hidden = false;
+  };
   setSaveStatus('Inspection submitted.');
+}
+
+async function unlockForm() {
+  submitted = false;
+  document.getElementById('submit-btn').textContent = 'Submit Inspection';
+  document.getElementById('submit-btn').disabled = result === null;
+  document.getElementById('submit-btn').onclick = submitInspection;
+  document.querySelectorAll('.insp-check-item').forEach(el => el.classList.remove('locked'));
+  document.querySelectorAll('.insp-textarea').forEach(el => { el.disabled = false; });
+  document.getElementById('btn-pass').disabled = false;
+  document.getElementById('btn-fail').disabled = false;
+  document.getElementById('unlock-btn').hidden = true;
+  setSaveStatus('Unlocked.');
+  setTimeout(() => setSaveStatus(''), 2000);
+  try {
+    await setDoc(inspRef, { submitted: false, updatedAt: serverTimestamp() }, { merge: true });
+    if (runRef) await setDoc(runRef, { status: 'draft', updatedAt: serverTimestamp() }, { merge: true });
+  } catch (err) { console.error('Failed to persist unlock:', err); }
+}
+
+async function resetInspection() {
+  // Clear local state
+  Object.assign(checks, { collisionAvoidance: false, loudnessOfVoice: false, appearanceCheck: false });
+  Object.assign(texts,  { externalDevices: '', startButton: '', customContainers: '', emergencyButton: '', notes: '' });
+  result    = null;
+  submitted = false;
+
+  // Re-enable and re-render the whole form
+  document.querySelectorAll('.insp-check-item').forEach(el => el.classList.remove('locked'));
+  document.querySelectorAll('.insp-textarea').forEach(el => { el.disabled = false; el.value = ''; });
+  document.getElementById('btn-pass').disabled = false;
+  document.getElementById('btn-fail').disabled = false;
+  document.getElementById('unlock-btn').hidden = true;
+  document.getElementById('submit-btn').textContent = 'Submit Inspection';
+  document.getElementById('submit-btn').onclick = submitInspection;
+  renderAll();
+  setSaveStatus('Reset.');
+  setTimeout(() => setSaveStatus(''), 2000);
+  try {
+    if (inspRef) await deleteDoc(inspRef);
+    if (runRef)  await deleteDoc(runRef);
+  } catch (err) { console.error('Failed to delete inspection:', err); }
 }
 
 function setSaveStatus(msg) {

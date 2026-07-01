@@ -1039,20 +1039,35 @@ async function showSlotTeams(slotId, testName, slot, backFn) {
     searchEl.dispatchEvent(new Event('input'));
   };
 
-  // Referee field
-  const refereeInput = document.getElementById('slot-referee-input');
-  refereeInput.value = slot.referee || '';
-  const saveReferee = async () => {
-    const val = refereeInput.value.trim();
-    if (val === (slot.referee || '')) return;
-    slot.referee = val;
-    await updateDoc(doc(db, 'competitions', currentCompetitionId, 'slots', currentSlotId), { referee: val });
-  };
-  refereeInput.onblur = saveReferee;
-  refereeInput.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); refereeInput.blur(); } };
+  // Poster slot: show Manage Session button, hide referee/link sections
+  const isPoster       = slot.type === 'poster';
+  const manageBtn      = document.getElementById('poster-manage-btn');
+  const refereeCard    = document.getElementById('slot-referee-input').closest('.card');
+  const slotLinkBox    = document.getElementById('slot-link-box');
+  manageBtn.hidden     = !isPoster;
+  refereeCard.hidden   = isPoster;
+  slotLinkBox.hidden   = isPoster;
+  if (isPoster) {
+    manageBtn.onclick = () =>
+      showPosterManagement(slot, () => showSlotTeams(slotId, testName, slot, backFn));
+  }
+
+  // Referee field (non-poster only)
+  if (!isPoster) {
+    const refereeInput = document.getElementById('slot-referee-input');
+    refereeInput.value = slot.referee || '';
+    const saveReferee = async () => {
+      const val = refereeInput.value.trim();
+      if (val === (slot.referee || '')) return;
+      slot.referee = val;
+      await updateDoc(doc(db, 'competitions', currentCompetitionId, 'slots', currentSlotId), { referee: val });
+    };
+    refereeInput.onblur = saveReferee;
+    refereeInput.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); refereeInput.blur(); } };
+  }
 
   renderTeamList(slot);
-  updateSlotLink(slot);
+  if (!isPoster) updateSlotLink(slot);
 }
 
 async function addTeamToSlot(slot, team) {
@@ -1068,6 +1083,7 @@ function renderTeamList(slot) {
   const list       = document.getElementById('team-list');
   const teams      = slot.teams || [];
   const isMapping  = slot.type === 'mapping';
+  const isPoster   = slot.type === 'poster';
   const slotStart  = isMapping ? timeToMinutes(slot.time || '00:00') : 0;
   list.innerHTML = '';
 
@@ -1079,9 +1095,9 @@ function renderTeamList(slot) {
   teams.forEach((team, idx) => {
     const row = document.createElement('div');
     row.className = 'team-row';
-    const meta = isMapping
-      ? minutesToTime(slotStart + (team.startOffset ?? idx * 10))
-      : `ID: ${team.teamId}`;
+    const meta = isMapping ? minutesToTime(slotStart + (team.startOffset ?? idx * 10))
+               : isPoster  ? 'Presenter'
+               : `ID: ${team.teamId}`;
     row.innerHTML = `
       <span class="team-order">${idx + 1}</span>
       <div class="team-info">
@@ -1539,8 +1555,7 @@ function renderSlotBlock(slot) {
 
   block.querySelector('.sched-slot-inner').addEventListener('click', () => {
     const back = () => showSchedule(schedState.compId, schedState.compName);
-    if (type === 'poster') { showPosterManagement(slot, back); return; }
-    if (!['test', 'inspection', 'mapping'].includes(type)) return;
+    if (!['test', 'inspection', 'mapping', 'poster'].includes(type)) return;
     showSlotTeams(slot.id, name, slot, back);
   });
 

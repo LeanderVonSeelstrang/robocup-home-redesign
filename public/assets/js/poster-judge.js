@@ -30,9 +30,17 @@ async function init() {
   if (!slotSnap.exists() || slotSnap.data().type !== 'poster')
     return showError('Poster session not found.');
 
-  const comp   = compSnap.data();
-  allTeams     = comp.participatingTeams || [];
-  const myTeam = allTeams.find(t => t.teamId === myTeamId);
+  const comp     = compSnap.data();
+  const slotData = slotSnap.data();
+
+  // Use the slot's team list (presentation order) if set; fall back to all comp teams
+  const slotTeams = (slotData.teams || []).sort((a, b) => (a.order || 0) - (b.order || 0));
+  allTeams = slotTeams.length
+    ? slotTeams
+    : (comp.participatingTeams || []);
+
+  const myTeam = allTeams.find(t => t.teamId === myTeamId)
+              || (comp.participatingTeams || []).find(t => t.teamId === myTeamId);
   if (!myTeam) return showError('Your team was not found in this competition.');
 
   myTeamName = myTeam.teamName;
