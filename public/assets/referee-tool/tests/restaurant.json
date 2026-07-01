@@ -1,5 +1,5 @@
 {
-  "testId": "restaurant",
+  "id": "restaurant",
   "name": "Restaurant",
   "timeLimit": 15,
   "sections": [
@@ -8,71 +8,111 @@
       "heading": "Regular Rewards",
       "items": [
         {
-          "id": "detect_customer",
+          "id": "detect_calling_or_waving_customer",
           "type": "count",
-          "maxCount": 2,
+          "label": "Detect calling or waving customer",
           "points": 80,
-          "label": "Detect calling or waving customer"
+          "maxCount": 2
         },
         {
-          "id": "reach_table",
+          "id": "reach_a_customer_s_table",
           "type": "count",
-          "maxCount": 2,
-          "points": 80,
           "label": "Reach a customer's table",
+          "points": 80,
+          "maxCount": 2,
           "penalties": [
-            { "id": "guided_to_table", "type": "fixed", "points": 80, "label": "Human assistance: Being guided to a table" }
+            {
+              "id": "human_assistance_being_guided_to_a_table",
+              "type": "fixed",
+              "label": "Human Assistance: Being guided to a table",
+              "points": 80,
+              "maxCount": 2
+            }
           ]
         },
         {
-          "id": "understand_order",
+          "id": "understand_and_confirm_the_order_received_to_the_c",
           "type": "count",
-          "maxCount": 2,
-          "points": 160,
           "label": "Understand and confirm the order received to the customer",
+          "points": 160,
+          "maxCount": 2,
           "penalties": [
-            { "id": "alternative_hri", "type": "fixed", "points": 80, "label": "Alternative HRI" },
-            { "id": "no_eye_contact",  "type": "fixed", "points": 60, "label": "Not making eye-contact when taking the order" }
+            {
+              "id": "alternative_hri",
+              "type": "fixed",
+              "label": "Alternative HRI",
+              "points": 80,
+              "maxCount": 2
+            },
+            {
+              "id": "not_making_eye_contact_when_taking_the_order",
+              "type": "fixed",
+              "label": "Not making eye-contact when taking the order",
+              "points": 60,
+              "maxCount": 2
+            }
           ]
         },
         {
-          "id": "communicate_order",
+          "id": "communicate_the_order_to_the_barman",
           "type": "count",
-          "maxCount": 2,
+          "label": "Communicate the order to the barman",
           "points": 80,
-          "label": "Communicate the order to the barman"
+          "maxCount": 2
         },
         {
-          "id": "pickup_items",
+          "id": "picking_up_the_requested_items_from_the_kitchen_ba",
           "type": "count",
-          "maxCount": 4,
-          "points": 100,
           "label": "Picking up the requested items from the Kitchen-bar",
+          "points": 100,
+          "maxCount": 4,
           "modifiers": [
-            { "id": "first_pick_bonus", "type": "boolean", "points": 100, "label": "First Pick Bonus" }
+            {
+              "id": "first_pick_bonus",
+              "label": "First Pick Bonus",
+              "points": 100,
+              "type": "boolean"
+            }
           ],
           "penalties": [
-            { "id": "barman_handover", "type": "fixed", "points": 100, "label": "Human assistance: Asking the Barman to handover object to the robot" }
+            {
+              "id": "human_assistance_asking_the_barman_to_handover_obj",
+              "type": "fixed",
+              "label": "Human assistance: Asking the Barman to handover object to the robot",
+              "points": 100,
+              "maxCount": 4
+            }
           ]
         },
         {
-          "id": "return_to_table",
+          "id": "return_to_the_customer_table_with_the_order",
           "type": "count",
-          "maxCount": 2,
+          "label": "Return to the customer table with the order",
           "points": 80,
-          "label": "Return to the customer table with the order"
+          "maxCount": 2
         },
         {
-          "id": "serve_order",
+          "id": "serve_the_order_to_the_customer",
           "type": "count",
-          "maxCount": 4,
-          "points": 100,
           "label": "Serve the order to the customer",
+          "points": 100,
+          "maxCount": 4,
           "modifiers": [
-            { "id": "first_place_bonus", "type": "boolean", "points": 100, "label": "First Place Bonus" }
+            {
+              "id": "first_place_bonus",
+              "label": "First Place Bonus",
+              "points": 100,
+              "type": "boolean"
+            }
           ],
           "penalties": [
-            { "id": "guest_takes_object", "type": "fixed", "points": 100, "label": "Human assistance: Guest needing to take the object from a tray or the robot's hand" }
+            {
+              "id": "human_assistance_guest_needing_to_take_the_object_",
+              "type": "fixed",
+              "label": "Human assistance: Guest needing to take the object from a tray or the robot's hand",
+              "points": 100,
+              "maxCount": 4
+            }
           ]
         }
       ]
@@ -82,11 +122,11 @@
       "heading": "Extra Rewards",
       "items": [
         {
-          "id": "use_tray",
+          "id": "use_an_unattached_tray_to_transport",
           "type": "count",
-          "maxCount": 2,
+          "label": "Use an unattached tray to transport",
           "points": 200,
-          "label": "Use an unattached tray to transport"
+          "maxCount": 2
         }
       ]
     },
@@ -94,9 +134,27 @@
       "id": "penalties",
       "heading": "Penalties",
       "items": [
-        { "id": "not_reaching_bar",        "type": "standalone_penalty", "maxCount": 2, "points": 60, "label": "Not reaching the bar (barman has to move from behind the bar to interact with the robot)" },
-        { "id": "directional_confirmation","type": "standalone_penalty", "maxCount": 2, "points": 30, "label": "Human assistance: Asking for directional confirmation" },
-        { "id": "told_location",           "type": "standalone_penalty", "maxCount": 2, "points": 40, "label": "Human assistance: Being told/pointed where a table/Kitchen-bar is located" }
+        {
+          "id": "not_reaching_the_bar_barman_has_to_move_from_behin",
+          "type": "standalone_penalty",
+          "label": "Not reaching the bar (barman has to move from behind the bar to interact with the robot)",
+          "points": 60,
+          "maxCount": 2
+        },
+        {
+          "id": "human_assistance_asking_for_directional_confirmati",
+          "type": "standalone_penalty",
+          "label": "Human Assistance: Asking for directional confirmation",
+          "points": 30,
+          "maxCount": 2
+        },
+        {
+          "id": "human_assistance_being_told_pointed_where_a_table_",
+          "type": "standalone_penalty",
+          "label": "Human Assistance: Being told/pointed where a table/Kitchen-bar is located",
+          "points": 40,
+          "maxCount": 2
+        }
       ]
     }
   ]

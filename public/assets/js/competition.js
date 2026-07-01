@@ -1,4 +1,4 @@
-import { db, ensureAuth } from '../referee-tool/js/firebase.js';
+import { db, ensureAuth } from './firebase-public.js';
 import {
   doc, collection, getDoc, getDocs, onSnapshot
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
@@ -32,10 +32,11 @@ const SCHED = { CELL_H: 40, TIME_W: 56, COL_W: 180, HEADER_H: 48 };
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
 
-let comp  = null;
-let slots = {};
-let runs  = {};
-let tests = [];
+let comp             = null;
+let slots            = {};
+let runs             = {};
+let tests            = [];
+let activeTeamFilter = '';
 
 // ── TIMEZONE HELPERS ──────────────────────────────────────────────────────────
 
@@ -66,6 +67,7 @@ function slotDisplayName(slot) {
   const type = slot.type || 'test';
   if (type === 'inspection') return 'Robot Inspection';
   if (type === 'poster')     return 'Poster Session';
+  if (type === 'mapping')    return 'Arena Mapping';
   if (type === 'other')      return slot.label || 'Other Event';
   return tests.find(t => t.id === slot.testId)?.name || slot.testId || '—';
 }
@@ -91,6 +93,83 @@ function slotStatus(slot) {
   if (teams.length === 0) return 'past';
   const allSubmitted = teams.every(t => runs[`${slot.id}_${t.teamId}`]?.status === 'submitted');
   return allSubmitted ? 'past' : 'active';
+}
+
+// ── TEAM FILTER ───────────────────────────────────────────────────────────────
+
+function setupTeamFilter() {
+  const teams = (comp.participatingTeams || [])
+    .slice().sort((a, b) => a.teamName.localeCompare(b.teamName));
+  if (!teams.length) return;
+
+  const select = document.getElementById('comp-team-filter');
+  select.innerHTML = '<option value="">All teams</option>' +
+    teams.map(t => `<option value="${t.teamId}">${t.teamName}</option>`).join('');
+  select.value = activeTeamFilter;
+
+  document.getElementById('comp-sched-filter').hidden = false;
+
+  select.addEventListener('change', () => {
+    activeTeamFilter = select.value;
+    applyTeamFilter();
+  });
+}
+
+function applyTeamFilter() {
+  const outer       = document.getElementById('comp-sched-outer');
+  const wrap        = outer?.querySelector('.comp-sched-wrap');
+  const allDayCols  = [...(outer?.querySelectorAll('.comp-sched-day-col')  || [])];
+  const allColHeads = [...(outer?.querySelectorAll('.comp-sched-col-head') || [])];
+
+  if (!activeTeamFilter) {
+    outer?.querySelectorAll('.comp-sched-slot').forEach(el => {
+      el.hidden = false;
+      const metaEl = el.querySelector('.comp-sched-slot-meta');
+      if (metaEl && el.dataset.defaultMeta) metaEl.textContent = el.dataset.defaultMeta;
+    });
+    allDayCols.forEach(el  => { el.style.display = ''; });
+    allColHeads.forEach(el => { el.style.display = ''; });
+    if (wrap) wrap.style.width = (SCHED.TIME_W + allDayCols.length * SCHED.COL_W) + 'px';
+    return;
+  }
+
+  // Show only test/mapping slots that include the selected team; collect their column ids
+  const visibleColIds = new Set();
+  outer?.querySelectorAll('.comp-sched-slot').forEach(el => {
+    const slot = slots[el.dataset.slotId];
+    if (!slot) { el.hidden = true; return; }
+    const type = slot.type || 'test';
+    if (type !== 'test' && type !== 'mapping' && type !== 'inspection') { el.hidden = true; return; }
+    const teamEntry = (slot.teams || []).find(t => t.teamId === activeTeamFilter);
+    el.hidden = !teamEntry;
+    if (teamEntry) {
+      const metaEl = el.querySelector('.comp-sched-slot-meta');
+      if (metaEl) {
+        if (type === 'mapping') {
+          const startMin = timeToMinutes(slot.time) + (teamEntry.startOffset || 0);
+          metaEl.textContent = minutesToTime(startMin);
+        } else {
+          metaEl.textContent = `#${teamEntry.order} of ${slot.teams.length}`;
+        }
+      }
+      const colEl = el.closest('.comp-sched-day-col');
+      if (colEl) visibleColIds.add(colEl.dataset.colId);
+    }
+  });
+
+  // Hide columns that have no visible slots; count the ones that remain
+  let visibleCount = 0;
+  allDayCols.forEach(el => {
+    const show = visibleColIds.has(el.dataset.colId);
+    el.style.display = show ? '' : 'none';
+    if (show) visibleCount++;
+  });
+  allColHeads.forEach(el => {
+    el.style.display = visibleColIds.has(el.dataset.colId) ? '' : 'none';
+  });
+
+  // Shrink the wrap so there's no dead space on the right
+  if (wrap) wrap.style.width = (SCHED.TIME_W + visibleCount * SCHED.COL_W) + 'px';
 }
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
@@ -121,6 +200,7 @@ async function loadModern() {
   tests = testsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
   renderModernInfo();
+  setupTeamFilter();
 
   if (comp.active) {
     // Live competition: real-time listeners + live/upnext boxes
@@ -142,15 +222,25 @@ async function loadModern() {
     });
     setInterval(() => { renderLiveBox(); updateSlotStates(); }, 60_000);
   } else {
-    // Past competition: one-time fetch, no live boxes
-    const [slotsSnap, runsSnap] = await Promise.all([
-      getDocs(collection(db, 'competitions', compId, 'slots')),
-      getDocs(collection(db, 'competitions', compId, 'runs')),
-    ]);
+    // Past competition: fetch slots and runs in parallel but render schedule the moment
+    // slots arrive — don't block on runs (which may be larger / slower).
+    const runsPromise = getDocs(collection(db, 'competitions', compId, 'runs'));
+    const slotsSnap = await getDocs(collection(db, 'competitions', compId, 'slots'));
     slotsSnap.docs.forEach(d => { slots[d.id] = { id: d.id, ...d.data() }; });
-    runsSnap.docs.forEach(d => { runs[d.id] = d.data(); });
-    renderLeaderboard();
     renderSchedule();
+
+    document.getElementById('slot-panel-close').addEventListener('click', closeSlotPanel);
+    document.getElementById('slot-panel-backdrop').addEventListener('click', closeSlotPanel);
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSlotPanel(); });
+    document.getElementById('comp-page').hidden = false;
+
+    // Leaderboard and slot states update once runs arrive (non-blocking)
+    runsPromise.then(runsSnap => {
+      runsSnap.docs.forEach(d => { runs[d.id] = d.data(); });
+      renderLeaderboard();
+      updateSlotStates();
+    });
+    return;
   }
 
   document.getElementById('slot-panel-close').addEventListener('click', closeSlotPanel);
@@ -379,6 +469,7 @@ function renderSchedule() {
   outer.appendChild(buildGrid(days, arenas, openMin, closeMin));
   renderSlotBlocks(days, arenas, openMin);
   updateSlotStates();
+  applyTeamFilter();
 
   if (comp.active) updateNowLine();
 
@@ -394,11 +485,12 @@ function updateSlotStates() {
   for (const slot of Object.values(slots)) {
     const el = document.querySelector(`.comp-sched-slot[data-slot-id="${slot.id}"]`);
     if (!el) continue;
-    const status = slotStatus(slot);
-    const isTest = (slot.type || 'test') === 'test';
+    const status   = slotStatus(slot);
+    const type     = slot.type || 'test';
+    const hasTeams = (slot.teams || []).length > 0;
     el.classList.toggle('slot-active',    status === 'active');
     el.classList.toggle('slot-done',      status === 'past');
-    el.classList.toggle('slot-clickable', status === 'past' && isTest);
+    el.classList.toggle('slot-clickable', type === 'poster' || (hasTeams && (type === 'test' || type === 'mapping' || type === 'inspection')));
   }
   if (comp.active) updateNowLine();
 }
@@ -500,11 +592,14 @@ function renderSlotBlocks(days, arenas, openMin) {
     block.style.cssText = `top:${topPx}px;height:${heightPx}px;`;
 
     const metaParts = [slot.time];
-    if (type === 'test' && teamCount) metaParts.push(teamCount + ' team' + (teamCount !== 1 ? 's' : ''));
+    if ((type === 'test' || type === 'inspection') && teamCount) metaParts.push(teamCount + ' team' + (teamCount !== 1 ? 's' : ''));
+    if (type === 'mapping' && teamCount) metaParts.push(teamCount + ' × 10 min');
     if (slot.referee) metaParts.push(slot.referee);
+    const defaultMeta = metaParts.join(' · ');
+    block.dataset.defaultMeta = defaultMeta;
     block.innerHTML = `
       <div class="comp-sched-slot-name">${displayName}</div>
-      <div class="comp-sched-slot-meta">${metaParts.join(' · ')}</div>
+      <div class="comp-sched-slot-meta">${defaultMeta}</div>
     `;
 
     colEl.appendChild(block);
@@ -549,8 +644,49 @@ function openSlotPanel(slot) {
   document.getElementById('slot-panel-meta').textContent = metaParts.join(' · ');
 
   const body = document.getElementById('slot-panel-body');
-  if (!teams.length) {
+  if (slot.type === 'poster') {
+    openPosterPanel(slot.id, body);
+  } else if (slot.type === 'inspection') {
+    body.innerHTML = teams.map((t, idx) => `
+      <div class="slot-panel-team-row">
+        <div class="slot-panel-team-left">
+          <span class="slot-panel-dot"></span>
+          <span class="slot-panel-team-name">${t.teamName}</span>
+        </div>
+        <div class="slot-panel-team-right">
+          <span class="slot-panel-status">#${idx + 1}</span>
+        </div>
+      </div>
+    `).join('');
+  } else if (!teams.length) {
     body.innerHTML = '<div class="slot-panel-empty">No teams in this slot.</div>';
+  } else if (slot.type === 'mapping') {
+    const slotStart = timeToMinutes(slot.time || '00:00');
+    body.innerHTML = teams.map((t, idx) => {
+      const startTime = minutesToTime(slotStart + (t.startOffset ?? idx * 10));
+      return `
+        <div class="slot-panel-team-row">
+          <div class="slot-panel-team-left">
+            <span class="slot-panel-team-name">${t.teamName}</span>
+          </div>
+          <div class="slot-panel-team-right">
+            <span class="slot-panel-status">${startTime}</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } else if (slotStatus(slot) !== 'past') {
+    body.innerHTML = teams.map((t, idx) => `
+      <div class="slot-panel-team-row">
+        <div class="slot-panel-team-left">
+          <span class="slot-panel-dot"></span>
+          <span class="slot-panel-team-name">${t.teamName}</span>
+        </div>
+        <div class="slot-panel-team-right">
+          <span class="slot-panel-status">#${idx + 1}</span>
+        </div>
+      </div>
+    `).join('');
   } else {
     body.innerHTML = teams.map(t => {
       const run    = runs[`${slot.id}_${t.teamId}`];
@@ -593,6 +729,57 @@ function closeSlotPanel() {
   document.getElementById('slot-panel-backdrop').hidden = true;
   document.getElementById('slot-panel').hidden = true;
   document.body.style.overflow = '';
+}
+
+async function openPosterPanel(slotId, body) {
+  body.innerHTML = '<div class="slot-panel-empty">Loading scores…</div>';
+  document.getElementById('slot-panel-backdrop').hidden = false;
+  document.getElementById('slot-panel').hidden = false;
+  document.body.style.overflow = 'hidden';
+
+  const snap = await getDocs(
+    collection(db, 'competitions', compId, 'slots', slotId, 'posterScores')
+  );
+
+  if (snap.empty) {
+    body.innerHTML = '<div class="slot-panel-empty">No scores submitted yet.</div>';
+    return;
+  }
+
+  // Aggregate scores per presenter
+  const totals = {};  // presenterTeamId → { sum, count, teamName }
+  snap.docs.forEach(d => {
+    const { scores = {} } = d.data();
+    for (const [presenterTeamId, score] of Object.entries(scores)) {
+      if (!totals[presenterTeamId]) totals[presenterTeamId] = { sum: 0, count: 0 };
+      totals[presenterTeamId].sum   += score;
+      totals[presenterTeamId].count += 1;
+    }
+  });
+
+  // Map teamId → teamName from participatingTeams
+  const teamNames = {};
+  (comp.participatingTeams || []).forEach(t => { teamNames[t.teamId] = t.teamName; });
+
+  const ranked = Object.entries(totals)
+    .map(([teamId, { sum, count }]) => ({
+      teamId,
+      teamName: teamNames[teamId] || teamId,
+      avg: sum / count,
+      count,
+    }))
+    .sort((a, b) => b.avg - a.avg);
+
+  body.innerHTML = ranked.map((r, i) => `
+    <div class="slot-panel-team-row">
+      <div class="slot-panel-team-left">
+        <span class="slot-panel-team-name">${r.teamName}</span>
+      </div>
+      <div class="slot-panel-team-right">
+        <span class="slot-panel-score">${r.avg.toFixed(1)} <span style="font-weight:400;opacity:.6;font-size:.85em">(${r.count} votes)</span></span>
+      </div>
+    </div>
+  `).join('');
 }
 
 // ── LEGACY VIEW ───────────────────────────────────────────────────────────────

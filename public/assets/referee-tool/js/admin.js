@@ -1,6 +1,7 @@
 import { db, auth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from './firebase.js';
 import {
-  collection, doc, addDoc, getDocs, getDoc, setDoc, updateDoc, deleteDoc, writeBatch, query, where
+  collection, doc, addDoc, getDocs, getDoc, setDoc, updateDoc, deleteDoc,
+  writeBatch, query, where, onSnapshot
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
 import { convertTexToTest } from './admin-tex.js';
 
@@ -140,7 +141,10 @@ function setBreadcrumb(parts) {
 
 // ── SCREEN SWITCHING ──────────────────────────────────────────────────────────
 
+let _screenCleanup = null;
+
 function showScreen(id) {
+  if (_screenCleanup) { _screenCleanup(); _screenCleanup = null; }
   document.querySelectorAll('.screen').forEach(s => s.hidden = true);
   document.getElementById(`screen-${id}`).hidden = false;
 }
@@ -1061,8 +1065,10 @@ async function addTeamToSlot(slot, team) {
 }
 
 function renderTeamList(slot) {
-  const list  = document.getElementById('team-list');
-  const teams = slot.teams || [];
+  const list       = document.getElementById('team-list');
+  const teams      = slot.teams || [];
+  const isMapping  = slot.type === 'mapping';
+  const slotStart  = isMapping ? timeToMinutes(slot.time || '00:00') : 0;
   list.innerHTML = '';
 
   if (!teams.length) {
@@ -1073,11 +1079,14 @@ function renderTeamList(slot) {
   teams.forEach((team, idx) => {
     const row = document.createElement('div');
     row.className = 'team-row';
+    const meta = isMapping
+      ? minutesToTime(slotStart + (team.startOffset ?? idx * 10))
+      : `ID: ${team.teamId}`;
     row.innerHTML = `
       <span class="team-order">${idx + 1}</span>
       <div class="team-info">
         <div class="team-name">${team.teamName}</div>
-        <div class="team-meta">ID: ${team.teamId}</div>
+        <div class="team-meta">${meta}</div>
       </div>
       <div class="team-actions">
         <button class="btn-icon" data-action="up"   title="Move up">↑</button>
@@ -1121,8 +1130,11 @@ function renderTeamList(slot) {
 }
 
 async function saveTeams(teams) {
-  // Re-number order fields
-  const numbered = teams.map((t, i) => ({ ...t, order: i + 1 }));
+  const numbered = teams.map((t, i) => {
+    const entry = { ...t, order: i + 1 };
+    if (t.startOffset !== undefined) entry.startOffset = i * 10;
+    return entry;
+  });
   await updateDoc(
     doc(db, 'competitions', currentCompetitionId, 'slots', currentSlotId),
     { teams: numbered }
@@ -1188,6 +1200,8 @@ async function showSchedule(compId, compName) {
   // Settings button → back to competition settings (arenas/teams/tests)
   document.getElementById('sched-settings-btn').onclick = () => showSlots(compId, compName);
   document.getElementById('sched-settings-btn').textContent = '← Back to Settings';
+
+  document.getElementById('sched-balance-btn').onclick = balanceArenaAssignments;
 
   // Venue time inputs
   document.getElementById('venue-open').value  = comp.venueOpen  || '09:00';
@@ -1367,6 +1381,38 @@ function buildGridDOM(days, arenas, openMin, closeMin) {
 }
 
 async function handleScheduleDrop(slotType, testId, label, col, startMinutes) {
+  // ── MAPPING SLOT ──────────────────────────────────────────────────────────────
+  if (slotType === 'mapping') {
+    if (!compTeams.length) { alert('No participating teams found.'); return; }
+    const n               = compTeams.length;
+    const durationMinutes = Math.ceil(n * 10 / 30) * 30;
+    const arenas_         = schedState.arenas.length ? schedState.arenas : [col.arena || ''];
+    const shuffled        = [...compTeams].sort(() => Math.random() - 0.5);
+    const shift           = arenas_.length > 1 ? Math.floor(n / arenas_.length) : 0;
+    const batch           = writeBatch(db);
+    const created         = [];
+
+    arenas_.forEach((arena, k) => {
+      const offset  = (k * shift) % (n || 1);
+      const rotated = [...shuffled.slice(offset), ...shuffled.slice(0, offset)]
+        .map((t, j) => ({ teamId: t.teamId, teamName: t.teamName, order: j + 1, startOffset: j * 10 }));
+
+      const slotData = {
+        type: 'mapping', testId: null, label: 'Arena Mapping',
+        date: col.day, time: minutesToTime(startMinutes),
+        arena, league: '', referee: '',
+        teams: rotated, durationMinutes, status: 'pending',
+      };
+      const ref = doc(collection(db, 'competitions', schedState.compId, 'slots'));
+      batch.set(ref, slotData);
+      created.push({ id: ref.id, ...slotData });
+    });
+
+    await batch.commit();
+    created.forEach(s => renderSlotBlock(s));
+    return;
+  }
+
   const arenas = schedState.arenas;
   const isMultiArena = ['test', 'inspection'].includes(slotType) && arenas.length > 1 && compTeams.length;
 
@@ -1437,6 +1483,7 @@ function slotDisplayName(slot) {
   const type = slot.type || 'test';
   if (type === 'inspection') return 'Robot Inspection';
   if (type === 'poster')     return 'Poster Session';
+  if (type === 'mapping')    return 'Arena Mapping';
   if (type === 'other')      return slot.label || 'Other Event';
   return (compTests.find(t => t.id === slot.testId) || {}).name || slot.testId || '—';
 }
@@ -1454,8 +1501,11 @@ function renderSlotBlock(slot) {
   const height    = Math.max(duration * (SCHED.CELL_H / 30), SCHED.CELL_H);
   const name      = slotDisplayName(slot);
   const teamCount = (slot.teams || []).length;
-  const teamMeta  = (type === 'test' && teamCount)
-    ? ' · ' + teamCount + ' team' + (teamCount !== 1 ? 's' : '') : '';
+  const teamMeta = type === 'test' && teamCount
+    ? ' · ' + teamCount + ' team' + (teamCount !== 1 ? 's' : '')
+    : type === 'mapping' && teamCount
+    ? ' · ' + teamCount + ' × 10 min'
+    : '';
 
   const block = document.createElement('div');
   block.className = `sched-slot-block type-${type}`;
@@ -1488,8 +1538,10 @@ function renderSlotBlock(slot) {
   });
 
   block.querySelector('.sched-slot-inner').addEventListener('click', () => {
-    if (!['test', 'inspection'].includes(type)) return;
-    showSlotTeams(slot.id, name, slot, () => showSchedule(schedState.compId, schedState.compName));
+    const back = () => showSchedule(schedState.compId, schedState.compName);
+    if (type === 'poster') { showPosterManagement(slot, back); return; }
+    if (!['test', 'inspection', 'mapping'].includes(type)) return;
+    showSlotTeams(slot.id, name, slot, back);
   });
 
   // ── DRAG HANDLE (move) ────────────────────────────────────────────────────────
@@ -1625,6 +1677,7 @@ function buildScheduleSidebar() {
   el.appendChild(makeSidebarLabel('Special'));
   el.appendChild(makeSpecialCard('inspection', 'Robot Inspection', 'type-inspection'));
   el.appendChild(makeSpecialCard('poster',     'Poster Session',   'type-poster'));
+  el.appendChild(makeSpecialCard('mapping',    'Arena Mapping',    'type-mapping'));
 
   // ── OTHER EVENT ────────────────────────────────────────────────────
   el.appendChild(makeSidebarLabel('Other'));
@@ -1677,6 +1730,198 @@ function makeSpecialCard(type, label, cls) {
   });
   card.addEventListener('dragend', () => card.classList.remove('sched-dragging'));
   return card;
+}
+
+// ── POSTER SESSION MANAGEMENT ─────────────────────────────────────────────────
+
+function showPosterManagement(slot, backFn) {
+  showScreen('poster');
+
+  const back = backFn || (() => showSchedule(schedState.compId, schedState.compName));
+  setBack(back);
+  setBreadcrumb([
+    { label: 'Competitions', onClick: showCompetitions },
+    { label: schedState.compName, onClick: back },
+    { label: 'Poster Session' }
+  ]);
+
+  document.getElementById('poster-title').textContent =
+    `Poster Session — ${slot.date || ''} ${slot.time || ''}`.trim();
+
+  // Build judge links + QR codes
+  const siteBase  = window.__siteBase || '';
+  const judgeBase = `${window.location.origin}${siteBase}/poster-judge`;
+  const grid      = document.getElementById('poster-links-grid');
+  grid.innerHTML  = '';
+
+  for (const team of compTeams) {
+    const url    = `${judgeBase}?comp=${schedState.compId}&slot=${slot.id}&team=${team.teamId}`;
+    const qrSrc  = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(url)}`;
+    const card   = document.createElement('div');
+    card.className = 'poster-link-card';
+    card.innerHTML = `
+      <div class="poster-link-team">${team.teamName}</div>
+      <img class="poster-link-qr" src="${qrSrc}" alt="QR for ${team.teamName}" loading="lazy" />
+      <button class="poster-copy-btn" data-url="${url}">Copy link</button>
+    `;
+    card.querySelector('.poster-copy-btn').addEventListener('click', e => {
+      navigator.clipboard.writeText(url).then(() => {
+        e.target.textContent = 'Copied!';
+        e.target.classList.add('copied');
+        setTimeout(() => {
+          e.target.textContent = 'Copy link';
+          e.target.classList.remove('copied');
+        }, 2000);
+      });
+    });
+    grid.appendChild(card);
+  }
+
+  // Subscribe to live scoring progress
+  const matrixEl  = document.getElementById('poster-matrix');
+  const unsubscribe = onSnapshot(
+    collection(db, 'competitions', schedState.compId, 'slots', slot.id, 'posterScores'),
+    snap => {
+      const byJudge = {};
+      snap.docs.forEach(d => { byJudge[d.id] = d.data().scores || {}; });
+      renderPosterMatrix(matrixEl, compTeams, byJudge);
+    }
+  );
+  _screenCleanup = unsubscribe;
+}
+
+function renderPosterMatrix(container, teams, byJudge) {
+  // Calculate averages per presenter
+  const averages = {};
+  for (const presenter of teams) {
+    const scores = teams
+      .filter(j => j.teamId !== presenter.teamId)
+      .map(j => (byJudge[j.teamId] || {})[presenter.teamId])
+      .filter(s => s !== undefined);
+    averages[presenter.teamId] = scores.length
+      ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1)
+      : '—';
+  }
+
+  let html = '<div class="poster-matrix-scroll"><table class="poster-matrix-table"><thead>';
+  html += '<tr><th class="pm-corner">Judge ↓ · Presenter →</th>';
+  for (const t of teams) html += `<th class="pm-col-head">${t.teamName}</th>`;
+  html += '</tr></thead><tbody>';
+
+  for (const judge of teams) {
+    const jScores = byJudge[judge.teamId] || {};
+    html += `<tr><th class="pm-row-head">${judge.teamName}</th>`;
+    for (const presenter of teams) {
+      if (judge.teamId === presenter.teamId) {
+        html += '<td class="pm-self">—</td>';
+      } else {
+        const s = jScores[presenter.teamId];
+        html += `<td class="pm-score${s !== undefined ? ' has-score' : ''}">${s !== undefined ? s : '·'}</td>`;
+      }
+    }
+    html += '</tr>';
+  }
+
+  html += '</tbody><tfoot><tr class="pm-avg-row"><th class="pm-row-head">Average</th>';
+  for (const t of teams) html += `<td class="pm-avg">${averages[t.teamId]}</td>`;
+  html += '</tr></tfoot></table></div>';
+  container.innerHTML = html;
+}
+
+// ── ARENA BALANCING ───────────────────────────────────────────────────────────
+
+async function balanceArenaAssignments() {
+  if (!compTeams.length) { alert('No participating teams found.'); return; }
+  if (!confirm(
+    'Reassign teams so each team stays in the same arena for all their tests on a given day, rotating arenas across days?\n\n' +
+    'This overwrites the current team distribution.'
+  )) return;
+
+  const snap = await getDocs(collection(db, 'competitions', schedState.compId, 'slots'));
+  const slots = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+  const N = schedState.arenas.length;
+  if (N < 2) { alert('Need at least two arenas to balance.'); return; }
+
+  // Group test slots by date → arena → [slots]
+  // All tests in the same (date, arena) cell get the same team group,
+  // so each team is always in the same arena for all their tests on a given day.
+  const byDate = {};
+  for (const slot of slots) {
+    if (slot.type !== 'test' || !slot.testId) continue;
+    (byDate[slot.date] ??= {})[slot.arena || ''] ??= [];
+    byDate[slot.date][slot.arena || ''].push(slot);
+  }
+
+  const sortedDays = Object.keys(byDate).sort();
+
+  // Derive the canonical sorted arena list from the actual slot data,
+  // not from schedState.arenas — avoids mismatches if names differ.
+  const allArenas = [...new Set(
+    slots.filter(s => s.type === 'test' && s.testId && s.arena).map(s => s.arena)
+  )].sort();
+
+  if (allArenas.length < 2) { alert('No multi-arena test slots found to balance.'); return; }
+
+  // One shuffle for the whole competition, split into N groups (one per arena)
+  const n = allArenas.length;
+  const shuffled = [...compTeams].sort(() => Math.random() - 0.5);
+  const groups = Array.from({ length: n }, (_, i) => {
+    const start = Math.floor((i / n) * shuffled.length);
+    const end   = Math.floor(((i + 1) / n) * shuffled.length);
+    return shuffled.slice(start, end);
+  });
+
+  const batch = writeBatch(db);
+  let changed = 0;
+
+  // For day at index d, arena at sorted index i → groups[(i + d) % n]
+  for (let d = 0; d < sortedDays.length; d++) {
+    const dayMap = byDate[sortedDays[d]];
+    allArenas.forEach((arena, i) => {
+      const arenaSlots = dayMap[arena] || [];
+      if (!arenaSlots.length) return;
+      const group = groups[(i + d) % n];
+      for (const slot of arenaSlots) {
+        const shuffled = [...group].sort(() => Math.random() - 0.5);
+        const teams = shuffled.map((t, j) => ({ teamId: t.teamId, teamName: t.teamName, order: j + 1 }));
+        batch.update(doc(db, 'competitions', schedState.compId, 'slots', slot.id), { teams });
+        changed++;
+      }
+    });
+  }
+
+  // ── MAPPING SLOTS: cyclic shift so no team has back-to-back slots across arenas ──
+  const mappingByDate = {};
+  for (const slot of slots) {
+    if (slot.type !== 'mapping') continue;
+    (mappingByDate[slot.date] ??= []).push(slot);
+  }
+
+  for (const dateSlots of Object.values(mappingByDate)) {
+    const multiArena = dateSlots.filter(s => s.arena).sort((a, b) => a.arena.localeCompare(b.arena));
+    if (multiArena.length < 2) continue;
+
+    const n               = compTeams.length;
+    if (!n) continue;
+    const durationMinutes = Math.ceil(n * 10 / 30) * 30;
+    const shuffled        = [...compTeams].sort(() => Math.random() - 0.5);
+    const shift           = Math.floor(n / multiArena.length);
+
+    multiArena.forEach((slot, k) => {
+      const offset  = (k * shift) % n;
+      const rotated = [...shuffled.slice(offset), ...shuffled.slice(0, offset)]
+        .map((t, j) => ({ teamId: t.teamId, teamName: t.teamName, order: j + 1, startOffset: j * 10 }));
+      batch.update(doc(db, 'competitions', schedState.compId, 'slots', slot.id),
+        { teams: rotated, durationMinutes });
+      changed++;
+    });
+  }
+
+  if (!changed) { alert('No multi-arena test or mapping slots found to balance.'); return; }
+
+  await batch.commit();
+  await showSchedule(schedState.compId, schedState.compName);
 }
 
 // ── GO ────────────────────────────────────────────────────────────────────────

@@ -1,0 +1,229 @@
+/* ── POSTER JUDGE PAGE (mobile scoring) ──────────────────────────────────── */
+
+.pj-loading,
+.pj-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 1.1rem;
+  color: var(--text-muted, #888);
+  padding: 24px;
+  text-align: center;
+}
+
+.pj-error { color: #e05; }
+
+.pj-header {
+  background: var(--surface, #1a1a2e);
+  border-bottom: 1px solid var(--border, #333);
+  padding: 16px 16px 12px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.pj-event-name {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted, #888);
+  margin-bottom: 2px;
+}
+
+.pj-team-name {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text, #fff);
+}
+
+.pj-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted, #888);
+  margin-top: 6px;
+}
+
+.pj-status {
+  font-size: 0.8rem;
+  margin-top: 6px;
+  min-height: 1.2em;
+  transition: color 0.2s;
+}
+.pj-status.saving { color: var(--text-muted, #888); }
+.pj-status.saved  { color: #4caf50; }
+.pj-status.error  { color: #e05; }
+
+.pj-teams {
+  padding: 12px 12px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pj-team-card {
+  background: var(--card, #16213e);
+  border: 1px solid var(--border, #333);
+  border-radius: 10px;
+  padding: 14px 12px;
+}
+
+.pj-card-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text, #fff);
+  margin-bottom: 10px;
+}
+
+.pj-score-btns {
+  display: flex;
+  gap: 4px;
+}
+
+.pj-score-btn {
+  flex: 1;
+  min-height: 42px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #444);
+  background: transparent;
+  color: var(--text, #fff);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  touch-action: manipulation;
+}
+
+.pj-score-btn:hover {
+  background: var(--border, #333);
+}
+
+.pj-score-btn.selected {
+  background: #b06aff;
+  border-color: #b06aff;
+  color: #fff;
+  font-weight: 700;
+}
+
+/* ── ADMIN POSTER SESSION SCREEN ─────────────────────────────────────────── */
+
+#screen-poster .screen-header h2 {
+  margin: 0;
+}
+
+.poster-section-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted, #888);
+  margin: 24px 0 12px;
+}
+
+/* QR code grid */
+.poster-links-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.poster-link-card {
+  background: var(--card, #16213e);
+  border: 1px solid var(--border, #333);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.poster-link-team {
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: center;
+  color: var(--text, #fff);
+  word-break: break-word;
+}
+
+.poster-link-qr {
+  width: 120px;
+  height: 120px;
+  border-radius: 6px;
+  background: #fff;
+  padding: 4px;
+}
+
+.poster-copy-btn {
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #444);
+  background: transparent;
+  color: var(--text-muted, #aaa);
+  cursor: pointer;
+}
+.poster-copy-btn:hover { background: var(--border, #333); }
+.poster-copy-btn.copied { color: #4caf50; border-color: #4caf50; }
+
+/* Scoring matrix */
+.poster-matrix-scroll {
+  overflow-x: auto;
+  margin-top: 8px;
+  border: 1px solid var(--border, #333);
+  border-radius: 10px;
+}
+
+.poster-matrix-table {
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  min-width: 100%;
+}
+
+.poster-matrix-table th,
+.poster-matrix-table td {
+  border: 1px solid var(--border, #2a2a3e);
+  padding: 6px 10px;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.pm-corner {
+  text-align: left;
+  font-size: 0.7rem;
+  color: var(--text-muted, #888);
+  font-weight: 400;
+  background: var(--surface, #1a1a2e);
+}
+
+.pm-col-head,
+.pm-row-head {
+  background: var(--surface, #1a1a2e);
+  font-weight: 600;
+  color: var(--text, #fff);
+  text-align: center;
+}
+
+.pm-row-head { text-align: left; }
+
+.pm-self {
+  background: var(--surface, #1a1a2e);
+  color: var(--text-muted, #555);
+}
+
+.pm-score {
+  color: var(--text-muted, #666);
+}
+
+.pm-score.has-score {
+  color: var(--text, #fff);
+  font-weight: 600;
+}
+
+.pm-avg-row th,
+.pm-avg-row td {
+  background: var(--surface, #1a1a2e);
+  font-weight: 700;
+  color: #b06aff;
+  border-top: 2px solid var(--border, #444);
+}

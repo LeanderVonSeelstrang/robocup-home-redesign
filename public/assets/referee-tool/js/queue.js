@@ -270,6 +270,7 @@ function getTestName(slot) {
   const type = slot.type || 'test';
   if (type === 'inspection') return 'Robot Inspection';
   if (type === 'poster')     return 'Poster Session';
+  if (type === 'mapping')    return 'Arena Mapping';
   if (type === 'other')      return slot.label || 'Other';
   return slot.testId || '—';
 }
