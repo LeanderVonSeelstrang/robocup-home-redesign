@@ -24,7 +24,7 @@ let unsubRuns        = null;
 let unsubComp        = null;
 let unsubFeed        = null;   // live listener on the active run's feed subcollection
 let feedRunId        = null;   // which run unsubFeed is currently following
-let finalResultSecs  = 10;     // post-submit "Final" flash duration (set on /referee)
+let finalResultSecs  = 20;     // post-submit "Final" flash duration (set on /referee)
 
 let timerInterval = null;
 let timerState    = null;
@@ -95,7 +95,7 @@ function startArena() {
   unsubComp = onSnapshot(doc(db, 'competitions', selectedCompId), snap => {
     const data = snap.data() || {};
     const v = Number(data.finalResultSecs);
-    finalResultSecs = Number.isFinite(v) && v >= 0 ? v : 10;
+    finalResultSecs = Number.isFinite(v) && v >= 0 ? v : 20;
 
     const overlayEl = document.getElementById('overlay');
 

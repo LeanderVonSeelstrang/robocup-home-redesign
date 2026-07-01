@@ -21,7 +21,7 @@ let unsubRuns        = null;
 let unsubComp        = null;
 let unsubFeed        = null;   // live listener on the active run's feed subcollection
 let feedRunId        = null;   // which run unsubFeed is currently following
-let finalResultSecs  = 10;     // how long the post-submit "Final Result" card shows
+let finalResultSecs  = 20;     // how long the post-submit "Final Result" card shows
 let showResultsQr    = false;  // admin flag: include a /results QR slide in the rotation
 
 // Live-display state
@@ -212,7 +212,7 @@ function selectArena(arena) {
   unsubComp = onSnapshot(doc(db, 'competitions', selectedCompId), snap => {
     const data = snap.data() || {};
     const v = Number(data.finalResultSecs);
-    finalResultSecs = Number.isFinite(v) && v >= 0 ? v : 10;
+    finalResultSecs = Number.isFinite(v) && v >= 0 ? v : 20;
     showResultsQr   = data.showResultsQr === true;
   });
 

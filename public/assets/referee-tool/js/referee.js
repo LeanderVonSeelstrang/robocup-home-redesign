@@ -8,7 +8,7 @@ import { collection, doc, getDocs, getDocsFromCache, setDoc } from "https://www.
 
 const base       = window.__siteBase || '';
 const LS_KEY     = 'referee.lastCompetition';
-const DEFAULT_FINAL_SECS = 10;
+const DEFAULT_FINAL_SECS = 20;
 const selectEl   = document.getElementById('comp-select');
 const gridEl     = document.getElementById('ref-landing-grid');
 const cards      = [...document.querySelectorAll('.ref-landing-grid .ref-landing-card[data-page]')];
