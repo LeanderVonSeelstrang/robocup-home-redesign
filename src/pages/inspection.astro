@@ -86,6 +86,12 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     </div>
 
     <footer id="insp-footer">
+      <div id="reset-confirm" class="insp-confirm" hidden>
+        <span>Reset and clear all inspection data? This cannot be undone.</span>
+        <button id="reset-confirm-ok"     class="btn-ghost btn-danger">Reset</button>
+        <button id="reset-confirm-cancel" class="btn-ghost">Cancel</button>
+      </div>
+
       <div id="insp-result-wrap">
         <span id="insp-result-label">Result</span>
         <div id="insp-result-btns">
@@ -93,7 +99,10 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
           <button id="btn-fail" class="insp-result-btn fail">✗ Fail</button>
         </div>
       </div>
-      <button id="submit-btn" class="btn-primary insp-submit" disabled>Submit Inspection</button>
+      <div class="insp-footer-actions">
+        <button id="reset-btn"  class="btn-ghost btn-danger">Reset</button>
+        <button id="submit-btn" class="btn-primary insp-submit" disabled>Submit Inspection</button>
+      </div>
     </footer>
   </div>
 

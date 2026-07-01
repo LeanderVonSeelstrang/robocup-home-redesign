@@ -1,6 +1,6 @@
 import { db, ensureRefereeAuth } from './firebase.js';
 import {
-  doc, getDoc, setDoc, serverTimestamp
+  doc, getDoc, setDoc, deleteDoc, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
 
 const p             = new URLSearchParams(window.location.search);
@@ -106,6 +106,7 @@ async function init() {
   }
 
   renderAll();
+  wireOneTimeButtons();
 
   if (submitted) lockForm();
 
@@ -141,13 +142,26 @@ function renderAll() {
     }
   }
 
-  // Result buttons
+  // Result buttons (re-assigned each render; safe because onclick replaces)
   renderResult();
-  document.getElementById('btn-pass').onclick = () => setResult('pass');
-  document.getElementById('btn-fail').onclick = () => setResult('fail');
+  document.getElementById('btn-pass').onclick   = () => setResult('pass');
+  document.getElementById('btn-fail').onclick   = () => setResult('fail');
   document.getElementById('submit-btn').onclick = submitInspection;
 
   updateSubmitBtn();
+}
+
+function wireOneTimeButtons() {
+  document.getElementById('reset-btn').onclick = () => {
+    document.getElementById('reset-confirm').hidden = false;
+  };
+  document.getElementById('reset-confirm-cancel').onclick = () => {
+    document.getElementById('reset-confirm').hidden = true;
+  };
+  document.getElementById('reset-confirm-ok').onclick = async () => {
+    document.getElementById('reset-confirm').hidden = true;
+    await resetInspection();
+  };
 }
 
 function renderResult() {
@@ -293,6 +307,32 @@ async function unlockForm() {
     setSaveStatus('Reopen failed to save');
     console.error(err);
   }
+}
+
+async function resetInspection() {
+  // Clear local state
+  Object.assign(checks, { collisionAvoidance: false, loudnessOfVoice: false, appearanceCheck: false });
+  Object.assign(texts,  { externalDevices: '', startButton: '', customContainers: '', emergencyButton: '', notes: '' });
+  result    = null;
+  submitted = false;
+  if (unlockTimeout) { clearTimeout(unlockTimeout); unlockTimeout = null; }
+
+  // Re-enable and re-render the whole form
+  document.querySelectorAll('.insp-check-item').forEach(el => el.classList.remove('locked'));
+  document.querySelectorAll('.insp-textarea').forEach(el => { el.disabled = false; el.value = ''; });
+  document.getElementById('btn-pass').disabled = false;
+  document.getElementById('btn-fail').disabled = false;
+  const submitBtn = document.getElementById('submit-btn');
+  submitBtn.classList.remove('submitted-btn', 'unlock-btn');
+  submitBtn.textContent = 'Submit Inspection';
+  submitBtn.onclick = submitInspection;
+  renderAll();
+  setSaveStatus('Reset.');
+  setTimeout(() => setSaveStatus(''), 2000);
+  try {
+    if (inspRef) await deleteDoc(inspRef);
+    if (runRef)  await deleteDoc(runRef);
+  } catch (err) { console.error('Failed to delete inspection:', err); }
 }
 
 function setSaveStatus(msg) {
