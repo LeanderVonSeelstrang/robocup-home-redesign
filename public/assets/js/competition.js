@@ -37,6 +37,7 @@ let slots            = {};
 let runs             = {};
 let tests            = [];
 let activeTeamFilter = '';
+let posterScoresByTeam = {};  // teamId → final score out of 50
 
 // ── TIMEZONE HELPERS ──────────────────────────────────────────────────────────
 
@@ -212,6 +213,7 @@ async function loadModern() {
       snap.docs.forEach(d => { slots[d.id] = { id: d.id, ...d.data() }; });
       renderSchedule();
       renderLiveBox();
+      loadPosterScores().then(renderLeaderboard);
     });
     onSnapshot(collection(db, 'competitions', compId, 'runs'), snap => {
       runs = {};
@@ -234,8 +236,11 @@ async function loadModern() {
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSlotPanel(); });
     document.getElementById('comp-page').hidden = false;
 
-    // Leaderboard and slot states update once runs arrive (non-blocking)
-    runsPromise.then(runsSnap => {
+    // Leaderboard and slot states update once runs + poster scores arrive (non-blocking)
+    Promise.all([
+      runsPromise,
+      loadPosterScores(),
+    ]).then(([runsSnap]) => {
       runsSnap.docs.forEach(d => { runs[d.id] = d.data(); });
       renderLeaderboard();
       updateSlotStates();
@@ -372,15 +377,55 @@ function renderLiveBox() {
   }
 }
 
+// ── POSTER SCORES ─────────────────────────────────────────────────────────────
+
+const POSTER_OUTLIER_N = 2;
+
+async function loadPosterScores() {
+  const posterSlots = Object.values(slots).filter(s => s.type === 'poster');
+  if (!posterSlots.length) { posterScoresByTeam = {}; return; }
+
+  const rawByPresenter = {};
+  for (const slot of posterSlots) {
+    const snap = await getDocs(
+      collection(db, 'competitions', compId, 'slots', slot.id, 'posterScores')
+    );
+    snap.docs.forEach(d => {
+      const { judgeTeamId, scores = {} } = d.data();
+      for (const [presenterTeamId, raw] of Object.entries(scores)) {
+        if (presenterTeamId === judgeTeamId) continue;
+        if (!rawByPresenter[presenterTeamId]) rawByPresenter[presenterTeamId] = [];
+        rawByPresenter[presenterTeamId].push(raw);
+      }
+    });
+  }
+
+  posterScoresByTeam = {};
+  for (const [teamId, raws] of Object.entries(rawByPresenter)) {
+    const scaled = raws.map(s => s * 5);
+    let final;
+    if (scaled.length <= 2 * POSTER_OUTLIER_N) {
+      final = scaled.reduce((a, b) => a + b, 0) / scaled.length;
+    } else {
+      const sorted  = [...scaled].sort((a, b) => a - b);
+      const trimmed = sorted.slice(POSTER_OUTLIER_N, sorted.length - POSTER_OUTLIER_N);
+      final = trimmed.reduce((a, b) => a + b, 0) / trimmed.length;
+    }
+    posterScoresByTeam[teamId] = final;
+  }
+}
+
 // ── LEADERBOARD ───────────────────────────────────────────────────────────────
 
 function renderLeaderboard() {
   const section = document.getElementById('comp-leaderboard-section');
   const el      = document.getElementById('comp-leaderboard');
 
-  const submittedRuns = Object.values(runs).filter(r => r.status === 'submitted');
-  if (!submittedRuns.length) { section.hidden = true; return; }
+  const submittedRuns  = Object.values(runs).filter(r => r.status === 'submitted');
+  const hasPoster      = Object.keys(posterScoresByTeam).length > 0;
+  if (!submittedRuns.length && !hasPoster) { section.hidden = true; return; }
 
+  // Best test score per team+test
   const bestByTeamTest = {};
   for (const run of submittedRuns) {
     const { teamId, teamName, testId, totalScore } = run;
@@ -393,9 +438,18 @@ function renderLeaderboard() {
 
   const totals = {};
   for (const { teamId, teamName, score } of Object.values(bestByTeamTest)) {
-    if (!totals[teamId]) totals[teamId] = { teamName, total: 0, runCount: 0 };
+    if (!totals[teamId]) totals[teamId] = { teamName, total: 0, runCount: 0, posterScore: null };
     totals[teamId].total    += score;
     totals[teamId].runCount += 1;
+  }
+
+  // Add poster scores
+  const teamNameMap = {};
+  (comp.participatingTeams || []).forEach(t => { teamNameMap[t.teamId] = t.teamName; });
+  for (const [teamId, score] of Object.entries(posterScoresByTeam)) {
+    if (!totals[teamId]) totals[teamId] = { teamName: teamNameMap[teamId] || teamId, total: 0, runCount: 0, posterScore: null };
+    totals[teamId].total       += score;
+    totals[teamId].posterScore  = score;
   }
 
   const ranked = Object.entries(totals)
@@ -407,9 +461,11 @@ function renderLeaderboard() {
 
   const topScore = ranked[0]?.total || 1;
   el.innerHTML = ranked.map((entry, i) => {
-    const pct      = Math.max(0, Math.round((entry.total / topScore) * 100));
-    const medal    = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
-    const runLabel = entry.runCount === 1 ? '1 run' : `${entry.runCount} runs`;
+    const pct        = Math.max(0, Math.round((entry.total / topScore) * 100));
+    const medal      = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
+    const runLabel   = entry.runCount ? `${entry.runCount} run${entry.runCount !== 1 ? 's' : ''}` : null;
+    const postLabel  = entry.posterScore != null ? `poster ${entry.posterScore.toFixed(1)}` : null;
+    const scoreLabel = [runLabel, postLabel].filter(Boolean).join(' + ');
     return `
       <div class="comp-lb-row">
         <div class="comp-lb-rank">${medal || (i + 1)}</div>
@@ -420,8 +476,8 @@ function renderLeaderboard() {
           </div>
         </div>
         <div class="comp-lb-score">
-          <span class="comp-lb-total">${entry.total}</span>
-          <span class="comp-lb-runs">${runLabel}</span>
+          <span class="comp-lb-total">${entry.total % 1 === 0 ? entry.total : entry.total.toFixed(1)}</span>
+          <span class="comp-lb-runs">${scoreLabel}</span>
         </div>
       </div>
     `;

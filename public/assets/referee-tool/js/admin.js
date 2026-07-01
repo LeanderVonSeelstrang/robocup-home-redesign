@@ -5,6 +5,10 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
 import { convertTexToTest } from './admin-tex.js';
 
+// ── CONSTANTS ─────────────────────────────────────────────────────────────────
+
+const POSTER_OUTLIER_N = 2;  // drop this many highest + lowest jury scores
+
 // ── STATE ─────────────────────────────────────────────────────────────────────
 
 let currentCompetitionId   = null;
@@ -312,13 +316,45 @@ async function toggleCompActive(comp) {
     ]);
 
     const slotLeague = {};
+    const posterSlotIds = [];
     for (const d of slotsSnap.docs) {
-      slotLeague[d.id] = d.data().league || 'OPL';
+      const data = d.data();
+      slotLeague[d.id] = data.league || 'OPL';
+      if (data.type === 'poster') posterSlotIds.push(d.id);
+    }
+
+    // Load poster scores from all poster slots
+    const rawPosterByPresenter = {};
+    for (const slotId of posterSlotIds) {
+      const psSnap = await getDocs(
+        collection(db, 'competitions', comp.id, 'slots', slotId, 'posterScores')
+      );
+      psSnap.docs.forEach(d => {
+        const { judgeTeamId, scores = {} } = d.data();
+        for (const [presenterTeamId, raw] of Object.entries(scores)) {
+          if (presenterTeamId === judgeTeamId) continue;
+          if (!rawPosterByPresenter[presenterTeamId]) rawPosterByPresenter[presenterTeamId] = [];
+          rawPosterByPresenter[presenterTeamId].push(raw);
+        }
+      });
+    }
+    const posterFinal = {};  // teamId → final score
+    for (const [teamId, raws] of Object.entries(rawPosterByPresenter)) {
+      const scaled = raws.map(s => s * 5);
+      let score;
+      if (scaled.length <= 2 * POSTER_OUTLIER_N) {
+        score = scaled.reduce((a, b) => a + b, 0) / scaled.length;
+      } else {
+        const sorted  = [...scaled].sort((a, b) => a - b);
+        const trimmed = sorted.slice(POSTER_OUTLIER_N, sorted.length - POSTER_OUTLIER_N);
+        score = trimmed.reduce((a, b) => a + b, 0) / trimmed.length;
+      }
+      posterFinal[teamId] = score;
     }
 
     const submittedRuns = runsSnap.docs.map(d => d.data()).filter(r => r.status === 'submitted');
 
-    if (submittedRuns.length) {
+    if (submittedRuns.length || Object.keys(posterFinal).length) {
       // Best score per team+test, track league via slot
       const bestByTeamTest = {};
       for (const run of submittedRuns) {
@@ -334,12 +370,21 @@ async function toggleCompActive(comp) {
         }
       }
 
-      // Sum per team, keep league (use most-seen league per team)
+      // Sum per team (test runs)
       const totals = {};
       for (const { teamId, teamName, score, league } of Object.values(bestByTeamTest)) {
         if (!totals[teamId]) totals[teamId] = { teamName, total: 0, leagueCounts: {} };
         totals[teamId].total += score;
         totals[teamId].leagueCounts[league] = (totals[teamId].leagueCounts[league] || 0) + 1;
+      }
+
+      // Add poster scores
+      const participatingMap = {};
+      (comp.participatingTeams || []).forEach(t => { participatingMap[t.teamId] = t.teamName; });
+      for (const [teamId, score] of Object.entries(posterFinal)) {
+        const teamName = participatingMap[teamId] || teamId;
+        if (!totals[teamId]) totals[teamId] = { teamName, total: 0, leagueCounts: { OPL: 1 } };
+        totals[teamId].total += score;
       }
 
       // Rank within each league
@@ -1807,7 +1852,6 @@ function showPosterManagement(slot, backFn) {
 
 // Scale raw 1–10 scores to 5–50, drop N highest and N lowest, return mean.
 // Falls back to plain mean when fewer than 2N+1 scores are available.
-const POSTER_OUTLIER_N = 2;
 function calcPosterScore(rawScores) {
   if (!rawScores.length) return null;
   const scaled = rawScores.map(s => s * 5);
