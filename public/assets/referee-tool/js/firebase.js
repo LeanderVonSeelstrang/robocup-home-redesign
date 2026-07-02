@@ -2,11 +2,11 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.0/fireba
 import {
   initializeFirestore,
   persistentLocalCache,
-  persistentMultipleTabManager,
   connectFirestoreEmulator
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
 import {
-  getAuth, signInAnonymously, signInWithEmailAndPassword,
+  initializeAuth, browserLocalPersistence,
+  signInAnonymously, signInWithEmailAndPassword,
   signOut, onAuthStateChanged, connectAuthEmulator
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-auth.js";
 
@@ -28,18 +28,25 @@ const USE_EMULATOR =
   typeof location !== 'undefined' &&
   (location.hostname === 'localhost' || location.hostname === '127.0.0.1');
 
-// Force long-polling against the emulator: the default WebChannel transport is slow and
-// flaky against the local Firestore emulator (causes "client is offline" + multi-second waits).
 // IndexedDB-backed cache with default LRU eviction (~40MB): bounds memory in a
 // long-lived tab (display/overlay left open all day) and avoids re-downloading the
-// whole dataset on each reload. Multi-tab manager because several referee-tool tabs
-// (display + overlay + dashboard) may be open on one machine.
+// whole dataset on each reload. Single-tab manager (default) avoids the cross-tab
+// IndexedDB lock that persistentMultipleTabManager needs — that lock hangs indefinitely
+// on Safari/iOS, causing the dashboard to show "loading..." forever with an empty console.
 export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+  localCache: persistentLocalCache(),
+  experimentalAutoDetectLongPolling: true,
   ...(USE_EMULATOR ? { experimentalForceLongPolling: true } : {})
 });
 
-export const auth = getAuth(app);
+// initializeAuth without a popupRedirectResolver prevents Firebase from loading
+// its cross-origin auth iframe (/__/auth/iframe). That iframe is only needed for
+// signInWithPopup/Redirect; we use email+password only. Safari's ITP blocks the
+// iframe's cookie access, causing authStateReady() to hang forever → empty console
+// and perpetual "loading…" on iOS devices.
+export const auth = initializeAuth(app, {
+  persistence: browserLocalPersistence,
+});
 
 if (USE_EMULATOR) {
   connectFirestoreEmulator(db, 'localhost', 8080);

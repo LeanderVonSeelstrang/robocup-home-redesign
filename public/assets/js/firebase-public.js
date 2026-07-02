@@ -10,7 +10,8 @@ import {
   connectFirestoreEmulator
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
 import {
-  getAuth, signInAnonymously, connectAuthEmulator
+  initializeAuth, browserLocalPersistence,
+  signInAnonymously, connectAuthEmulator
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-auth.js";
 
 const firebaseConfig = {
@@ -30,10 +31,15 @@ const USE_EMULATOR =
 
 export const db = initializeFirestore(app, {
   localCache: memoryLocalCache(),
+  // Auto-detects when WebChannel (XHR streaming) is broken and falls back to long-polling.
+  // Covers old Android WebViews and tablets with buggy XHR streaming implementations.
+  experimentalAutoDetectLongPolling: true,
   ...(USE_EMULATOR ? { experimentalForceLongPolling: true } : {})
 });
 
-export const auth = getAuth(app);
+export const auth = initializeAuth(app, {
+  persistence: browserLocalPersistence,
+});
 
 if (USE_EMULATOR) {
   connectFirestoreEmulator(db, 'localhost', 8080);
