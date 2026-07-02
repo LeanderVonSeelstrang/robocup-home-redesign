@@ -316,13 +316,45 @@ async function toggleCompActive(comp) {
     ]);
 
     const slotLeague = {};
+    const posterSlotIds = [];
     for (const d of slotsSnap.docs) {
-      slotLeague[d.id] = d.data().league || 'OPL';
+      const data = d.data();
+      slotLeague[d.id] = data.league || 'OPL';
+      if (data.type === 'poster') posterSlotIds.push(d.id);
+    }
+
+    // Load poster scores from all poster slots
+    const rawPosterByPresenter = {};
+    for (const slotId of posterSlotIds) {
+      const psSnap = await getDocs(
+        collection(db, 'competitions', comp.id, 'slots', slotId, 'posterScores')
+      );
+      psSnap.docs.forEach(d => {
+        const { judgeTeamId, scores = {} } = d.data();
+        for (const [presenterTeamId, raw] of Object.entries(scores)) {
+          if (presenterTeamId === judgeTeamId) continue;
+          if (!rawPosterByPresenter[presenterTeamId]) rawPosterByPresenter[presenterTeamId] = [];
+          rawPosterByPresenter[presenterTeamId].push(raw);
+        }
+      });
+    }
+    const posterFinal = {};  // teamId → final score
+    for (const [teamId, raws] of Object.entries(rawPosterByPresenter)) {
+      const scaled = raws.map(s => s * 5);
+      let score;
+      if (scaled.length <= 2 * POSTER_OUTLIER_N) {
+        score = scaled.reduce((a, b) => a + b, 0) / scaled.length;
+      } else {
+        const sorted  = [...scaled].sort((a, b) => a - b);
+        const trimmed = sorted.slice(POSTER_OUTLIER_N, sorted.length - POSTER_OUTLIER_N);
+        score = trimmed.reduce((a, b) => a + b, 0) / trimmed.length;
+      }
+      posterFinal[teamId] = score;
     }
 
     const submittedRuns = runsSnap.docs.map(d => d.data()).filter(r => r.status === 'submitted');
 
-    if (submittedRuns.length) {
+    if (submittedRuns.length || Object.keys(posterFinal).length) {
       // Best score per team+test, track league via slot
       const bestByTeamTest = {};
       for (const run of submittedRuns) {
@@ -338,12 +370,21 @@ async function toggleCompActive(comp) {
         }
       }
 
-      // Sum per team, keep league (use most-seen league per team)
+      // Sum per team (test runs)
       const totals = {};
       for (const { teamId, teamName, score, league } of Object.values(bestByTeamTest)) {
         if (!totals[teamId]) totals[teamId] = { teamName, total: 0, leagueCounts: {} };
         totals[teamId].total += score;
         totals[teamId].leagueCounts[league] = (totals[teamId].leagueCounts[league] || 0) + 1;
+      }
+
+      // Add poster scores
+      const participatingMap = {};
+      (comp.participatingTeams || []).forEach(t => { participatingMap[t.teamId] = t.teamName; });
+      for (const [teamId, score] of Object.entries(posterFinal)) {
+        const teamName = participatingMap[teamId] || teamId;
+        if (!totals[teamId]) totals[teamId] = { teamName, total: 0, leagueCounts: { OPL: 1 } };
+        totals[teamId].total += score;
       }
 
       // Rank within each league
@@ -1240,21 +1281,23 @@ async function showSlotTeams(slotId, testName, slot, backFn) {
     searchEl.dispatchEvent(new Event('input'));
   };
 
-  // Poster slot: show Manage Session button, hide referee/link sections
-  const isPoster       = slot.type === 'poster';
-  const manageBtn      = document.getElementById('poster-manage-btn');
-  const refereeCard    = document.getElementById('slot-referee-input').closest('.card');
-  const slotLinkBox    = document.getElementById('slot-link-box');
-  manageBtn.hidden     = !isPoster;
-  refereeCard.hidden   = isPoster;
-  slotLinkBox.hidden   = isPoster;
+  // Poster: show Manage Session button, hide referee/link
+  // Open Challenge: hide referee/link (no scoring), no Manage button
+  const isPoster          = slot.type === 'poster';
+  const isNoScore         = isPoster || slot.type === 'open_challenge';
+  const manageBtn         = document.getElementById('poster-manage-btn');
+  const refereeCard       = document.getElementById('slot-referee-input').closest('.card');
+  const slotLinkBox       = document.getElementById('slot-link-box');
+  manageBtn.hidden        = !isPoster;
+  refereeCard.hidden      = isNoScore;
+  slotLinkBox.hidden      = isNoScore;
   if (isPoster) {
     manageBtn.onclick = () =>
       showPosterManagement(slot, () => showSlotTeams(slotId, testName, slot, backFn));
   }
 
-  // Referee field (non-poster only)
-  if (!isPoster) {
+  // Referee field (scored slots only)
+  if (!isNoScore) {
     const refereeInput = document.getElementById('slot-referee-input');
     refereeInput.value = slot.referee || '';
     const saveReferee = async () => {
@@ -1268,7 +1311,7 @@ async function showSlotTeams(slotId, testName, slot, backFn) {
   }
 
   renderTeamList(slot);
-  if (!isPoster) updateSlotLink(slot);
+  if (!isNoScore) updateSlotLink(slot);
 }
 
 async function addTeamToSlot(slot, team) {
@@ -1283,9 +1326,10 @@ async function addTeamToSlot(slot, team) {
 function renderTeamList(slot) {
   const list       = document.getElementById('team-list');
   const teams      = slot.teams || [];
-  const isMapping  = slot.type === 'mapping';
-  const isPoster   = slot.type === 'poster';
-  const slotStart  = isMapping ? timeToMinutes(slot.time || '00:00') : 0;
+  const isMapping       = slot.type === 'mapping';
+  const isPoster        = slot.type === 'poster';
+  const isOpenChallenge = slot.type === 'open_challenge';
+  const slotStart       = isMapping ? timeToMinutes(slot.time || '00:00') : 0;
   list.innerHTML = '';
 
   if (!teams.length) {
@@ -1296,8 +1340,9 @@ function renderTeamList(slot) {
   teams.forEach((team, idx) => {
     const row = document.createElement('div');
     row.className = 'team-row';
-    const meta = isMapping ? minutesToTime(slotStart + (team.startOffset ?? idx * 10))
-               : isPoster  ? 'Presenter'
+    const meta = isMapping       ? minutesToTime(slotStart + (team.startOffset ?? idx * 10))
+               : isPoster        ? 'Presenter'
+               : isOpenChallenge ? `Slot ${idx + 1}`
                : `ID: ${team.teamId}`;
     row.innerHTML = `
       <span class="team-order">${idx + 1}</span>
@@ -1698,10 +1743,11 @@ async function handleScheduleDrop(slotType, testId, label, col, startMinutes) {
 
 function slotDisplayName(slot) {
   const type = slot.type || 'test';
-  if (type === 'inspection') return 'Robot Inspection';
-  if (type === 'poster')     return 'Poster Session';
-  if (type === 'mapping')    return 'Arena Mapping';
-  if (type === 'other')      return slot.label || 'Other Event';
+  if (type === 'inspection')     return 'Robot Inspection';
+  if (type === 'poster')         return 'Poster Session';
+  if (type === 'open_challenge') return 'Open Challenge';
+  if (type === 'mapping')        return 'Arena Mapping';
+  if (type === 'other')          return slot.label || 'Other Event';
   return (compTests.find(t => t.id === slot.testId) || {}).name || slot.testId || '—';
 }
 
@@ -1756,7 +1802,7 @@ function renderSlotBlock(slot) {
 
   block.querySelector('.sched-slot-inner').addEventListener('click', () => {
     const back = () => showSchedule(schedState.compId, schedState.compName);
-    if (!['test', 'inspection', 'mapping', 'poster'].includes(type)) return;
+    if (!['test', 'inspection', 'mapping', 'poster', 'open_challenge'].includes(type)) return;
     showSlotTeams(slot.id, name, slot, back);
   });
 
@@ -1891,9 +1937,10 @@ function buildScheduleSidebar() {
 
   // ── SPECIAL BLOCKS ─────────────────────────────────────────────────
   el.appendChild(makeSidebarLabel('Special'));
-  el.appendChild(makeSpecialCard('inspection', 'Robot Inspection', 'type-inspection'));
-  el.appendChild(makeSpecialCard('poster',     'Poster Session',   'type-poster'));
-  el.appendChild(makeSpecialCard('mapping',    'Arena Mapping',    'type-mapping'));
+  el.appendChild(makeSpecialCard('inspection',     'Robot Inspection', 'type-inspection'));
+  el.appendChild(makeSpecialCard('poster',         'Poster Session',   'type-poster'));
+  el.appendChild(makeSpecialCard('open_challenge', 'Open Challenge',   'type-open_challenge'));
+  el.appendChild(makeSpecialCard('mapping',        'Arena Mapping',    'type-mapping'));
 
   // ── OTHER EVENT ────────────────────────────────────────────────────
   el.appendChild(makeSidebarLabel('Other'));
@@ -2006,17 +2053,42 @@ function showPosterManagement(slot, backFn) {
   _screenCleanup = unsubscribe;
 }
 
+// Scale raw 1–10 scores to 5–50, drop N highest and N lowest, return mean.
+// Falls back to plain mean when fewer than 2N+1 scores are available.
+function calcPosterScore(rawScores) {
+  if (!rawScores.length) return null;
+  const scaled = rawScores.map(s => s * 5);
+  if (scaled.length <= 2 * POSTER_OUTLIER_N) {
+    return scaled.reduce((a, b) => a + b, 0) / scaled.length;
+  }
+  const sorted  = [...scaled].sort((a, b) => a - b);
+  const trimmed = sorted.slice(POSTER_OUTLIER_N, sorted.length - POSTER_OUTLIER_N);
+  return trimmed.reduce((a, b) => a + b, 0) / trimmed.length;
+}
+
 function renderPosterMatrix(container, teams, byJudge) {
-  // Calculate averages per presenter
-  const averages = {};
+  // Collect raw scores and compute final score per presenter
+  const finalScores = {};
+  const outlierSets = {};  // presenterTeamId → Set of judge teamIds whose scores are dropped
   for (const presenter of teams) {
-    const scores = teams
+    const judgeScores = teams
       .filter(j => j.teamId !== presenter.teamId)
-      .map(j => (byJudge[j.teamId] || {})[presenter.teamId])
-      .filter(s => s !== undefined);
-    averages[presenter.teamId] = scores.length
-      ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1)
-      : '—';
+      .map(j => ({ judgeId: j.teamId, raw: (byJudge[j.teamId] || {})[presenter.teamId] }))
+      .filter(e => e.raw !== undefined);
+
+    const score = calcPosterScore(judgeScores.map(e => e.raw));
+    finalScores[presenter.teamId] = score !== null ? score.toFixed(1) : '—';
+
+    // Identify which judges are outliers (only meaningful when enough scores exist)
+    const dropped = new Set();
+    if (judgeScores.length > 2 * POSTER_OUTLIER_N) {
+      const sorted = [...judgeScores].sort((a, b) => a.raw - b.raw);
+      for (let i = 0; i < POSTER_OUTLIER_N; i++) {
+        dropped.add(sorted[i].judgeId);                           // lowest N
+        dropped.add(sorted[sorted.length - 1 - i].judgeId);      // highest N
+      }
+    }
+    outlierSets[presenter.teamId] = dropped;
   }
 
   let html = '<div class="poster-matrix-scroll"><table class="poster-matrix-table"><thead>';
@@ -2031,15 +2103,17 @@ function renderPosterMatrix(container, teams, byJudge) {
       if (judge.teamId === presenter.teamId) {
         html += '<td class="pm-self">—</td>';
       } else {
-        const s = jScores[presenter.teamId];
-        html += `<td class="pm-score${s !== undefined ? ' has-score' : ''}">${s !== undefined ? s : '·'}</td>`;
+        const s         = jScores[presenter.teamId];
+        const isOutlier = s !== undefined && outlierSets[presenter.teamId]?.has(judge.teamId);
+        const cls       = ['pm-score', s !== undefined ? 'has-score' : '', isOutlier ? 'pm-outlier' : ''].join(' ').trim();
+        html += `<td class="${cls}" title="${isOutlier ? 'dropped as outlier' : ''}">${s !== undefined ? s : '·'}</td>`;
       }
     }
     html += '</tr>';
   }
 
-  html += '</tbody><tfoot><tr class="pm-avg-row"><th class="pm-row-head">Average</th>';
-  for (const t of teams) html += `<td class="pm-avg">${averages[t.teamId]}</td>`;
+  html += `</tbody><tfoot><tr class="pm-avg-row"><th class="pm-row-head">Score (/50)</th>`;
+  for (const t of teams) html += `<td class="pm-avg">${finalScores[t.teamId]}</td>`;
   html += '</tr></tfoot></table></div>';
   container.innerHTML = html;
 }

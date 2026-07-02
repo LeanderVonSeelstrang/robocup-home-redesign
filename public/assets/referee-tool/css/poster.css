@@ -220,6 +220,12 @@
   font-weight: 600;
 }
 
+.pm-score.pm-outlier {
+  opacity: 0.4;
+  text-decoration: line-through;
+  font-weight: 400;
+}
+
 .pm-avg-row th,
 .pm-avg-row td {
   background: var(--surface, #1a1a2e);

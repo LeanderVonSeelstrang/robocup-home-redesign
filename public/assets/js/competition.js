@@ -37,6 +37,7 @@ let slots            = {};
 let runs             = {};
 let tests            = [];
 let activeTeamFilter = '';
+let posterScoresByTeam = {};  // teamId → final score out of 50
 
 // ── TIMEZONE HELPERS ──────────────────────────────────────────────────────────
 
@@ -65,10 +66,11 @@ function placeLabel(place) {
 
 function slotDisplayName(slot) {
   const type = slot.type || 'test';
-  if (type === 'inspection') return 'Robot Inspection';
-  if (type === 'poster')     return 'Poster Session';
-  if (type === 'mapping')    return 'Arena Mapping';
-  if (type === 'other')      return slot.label || 'Other Event';
+  if (type === 'inspection')     return 'Robot Inspection';
+  if (type === 'poster')         return 'Poster Session';
+  if (type === 'open_challenge') return 'Open Challenge';
+  if (type === 'mapping')        return 'Arena Mapping';
+  if (type === 'other')          return slot.label || 'Other Event';
   return tests.find(t => t.id === slot.testId)?.name || slot.testId || '—';
 }
 
@@ -139,7 +141,7 @@ function applyTeamFilter() {
     const slot = slots[el.dataset.slotId];
     if (!slot) { el.hidden = true; return; }
     const type = slot.type || 'test';
-    if (type !== 'test' && type !== 'mapping' && type !== 'inspection') { el.hidden = true; return; }
+    if (type !== 'test' && type !== 'mapping' && type !== 'inspection' && type !== 'open_challenge') { el.hidden = true; return; }
     const teamEntry = (slot.teams || []).find(t => t.teamId === activeTeamFilter);
     el.hidden = !teamEntry;
     if (teamEntry) {
@@ -212,6 +214,7 @@ async function loadModern() {
       snap.docs.forEach(d => { slots[d.id] = { id: d.id, ...d.data() }; });
       renderSchedule();
       renderLiveBox();
+      loadPosterScores().then(renderLeaderboard);
     });
     onSnapshot(collection(db, 'competitions', compId, 'runs'), snap => {
       runs = {};
@@ -234,8 +237,11 @@ async function loadModern() {
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSlotPanel(); });
     document.getElementById('comp-page').hidden = false;
 
-    // Leaderboard and slot states update once runs arrive (non-blocking)
-    runsPromise.then(runsSnap => {
+    // Leaderboard and slot states update once runs + poster scores arrive (non-blocking)
+    Promise.all([
+      runsPromise,
+      loadPosterScores(),
+    ]).then(([runsSnap]) => {
       runsSnap.docs.forEach(d => { runs[d.id] = d.data(); });
       renderLeaderboard();
       updateSlotStates();
@@ -372,15 +378,55 @@ function renderLiveBox() {
   }
 }
 
+// ── POSTER SCORES ─────────────────────────────────────────────────────────────
+
+const POSTER_OUTLIER_N = 2;
+
+async function loadPosterScores() {
+  const posterSlots = Object.values(slots).filter(s => s.type === 'poster');
+  if (!posterSlots.length) { posterScoresByTeam = {}; return; }
+
+  const rawByPresenter = {};
+  for (const slot of posterSlots) {
+    const snap = await getDocs(
+      collection(db, 'competitions', compId, 'slots', slot.id, 'posterScores')
+    );
+    snap.docs.forEach(d => {
+      const { judgeTeamId, scores = {} } = d.data();
+      for (const [presenterTeamId, raw] of Object.entries(scores)) {
+        if (presenterTeamId === judgeTeamId) continue;
+        if (!rawByPresenter[presenterTeamId]) rawByPresenter[presenterTeamId] = [];
+        rawByPresenter[presenterTeamId].push(raw);
+      }
+    });
+  }
+
+  posterScoresByTeam = {};
+  for (const [teamId, raws] of Object.entries(rawByPresenter)) {
+    const scaled = raws.map(s => s * 5);
+    let final;
+    if (scaled.length <= 2 * POSTER_OUTLIER_N) {
+      final = scaled.reduce((a, b) => a + b, 0) / scaled.length;
+    } else {
+      const sorted  = [...scaled].sort((a, b) => a - b);
+      const trimmed = sorted.slice(POSTER_OUTLIER_N, sorted.length - POSTER_OUTLIER_N);
+      final = trimmed.reduce((a, b) => a + b, 0) / trimmed.length;
+    }
+    posterScoresByTeam[teamId] = final;
+  }
+}
+
 // ── LEADERBOARD ───────────────────────────────────────────────────────────────
 
 function renderLeaderboard() {
   const section = document.getElementById('comp-leaderboard-section');
   const el      = document.getElementById('comp-leaderboard');
 
-  const submittedRuns = Object.values(runs).filter(r => r.status === 'submitted');
-  if (!submittedRuns.length) { section.hidden = true; return; }
+  const submittedRuns  = Object.values(runs).filter(r => r.status === 'submitted');
+  const hasPoster      = Object.keys(posterScoresByTeam).length > 0;
+  if (!submittedRuns.length && !hasPoster) { section.hidden = true; return; }
 
+  // Best test score per team+test
   const bestByTeamTest = {};
   for (const run of submittedRuns) {
     const { teamId, teamName, testId, totalScore } = run;
@@ -393,9 +439,18 @@ function renderLeaderboard() {
 
   const totals = {};
   for (const { teamId, teamName, score } of Object.values(bestByTeamTest)) {
-    if (!totals[teamId]) totals[teamId] = { teamName, total: 0, runCount: 0 };
+    if (!totals[teamId]) totals[teamId] = { teamName, total: 0, runCount: 0, posterScore: null };
     totals[teamId].total    += score;
     totals[teamId].runCount += 1;
+  }
+
+  // Add poster scores
+  const teamNameMap = {};
+  (comp.participatingTeams || []).forEach(t => { teamNameMap[t.teamId] = t.teamName; });
+  for (const [teamId, score] of Object.entries(posterScoresByTeam)) {
+    if (!totals[teamId]) totals[teamId] = { teamName: teamNameMap[teamId] || teamId, total: 0, runCount: 0, posterScore: null };
+    totals[teamId].total       += score;
+    totals[teamId].posterScore  = score;
   }
 
   const ranked = Object.entries(totals)
@@ -407,9 +462,11 @@ function renderLeaderboard() {
 
   const topScore = ranked[0]?.total || 1;
   el.innerHTML = ranked.map((entry, i) => {
-    const pct      = Math.max(0, Math.round((entry.total / topScore) * 100));
-    const medal    = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
-    const runLabel = entry.runCount === 1 ? '1 run' : `${entry.runCount} runs`;
+    const pct        = Math.max(0, Math.round((entry.total / topScore) * 100));
+    const medal      = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
+    const runLabel   = entry.runCount ? `${entry.runCount} run${entry.runCount !== 1 ? 's' : ''}` : null;
+    const postLabel  = entry.posterScore != null ? `poster ${entry.posterScore.toFixed(1)}` : null;
+    const scoreLabel = [runLabel, postLabel].filter(Boolean).join(' + ');
     return `
       <div class="comp-lb-row">
         <div class="comp-lb-rank">${medal || (i + 1)}</div>
@@ -420,8 +477,8 @@ function renderLeaderboard() {
           </div>
         </div>
         <div class="comp-lb-score">
-          <span class="comp-lb-total">${entry.total}</span>
-          <span class="comp-lb-runs">${runLabel}</span>
+          <span class="comp-lb-total">${entry.total % 1 === 0 ? entry.total : entry.total.toFixed(1)}</span>
+          <span class="comp-lb-runs">${scoreLabel}</span>
         </div>
       </div>
     `;
@@ -490,7 +547,7 @@ function updateSlotStates() {
     const hasTeams = (slot.teams || []).length > 0;
     el.classList.toggle('slot-active',    status === 'active');
     el.classList.toggle('slot-done',      status === 'past');
-    el.classList.toggle('slot-clickable', type === 'poster' || (hasTeams && (type === 'test' || type === 'mapping' || type === 'inspection')));
+    el.classList.toggle('slot-clickable', type === 'poster' || (hasTeams && (type === 'test' || type === 'mapping' || type === 'inspection' || type === 'open_challenge')));
   }
   if (comp.active) updateNowLine();
 }
@@ -592,7 +649,7 @@ function renderSlotBlocks(days, arenas, openMin) {
     block.style.cssText = `top:${topPx}px;height:${heightPx}px;`;
 
     const metaParts = [slot.time];
-    if ((type === 'test' || type === 'inspection') && teamCount) metaParts.push(teamCount + ' team' + (teamCount !== 1 ? 's' : ''));
+    if ((type === 'test' || type === 'inspection' || type === 'open_challenge') && teamCount) metaParts.push(teamCount + ' team' + (teamCount !== 1 ? 's' : ''));
     if (type === 'mapping' && teamCount) metaParts.push(teamCount + ' × 10 min');
     if (slot.referee) metaParts.push(slot.referee);
     const defaultMeta = metaParts.join(' · ');
@@ -646,7 +703,7 @@ function openSlotPanel(slot) {
   const body = document.getElementById('slot-panel-body');
   if (slot.type === 'poster') {
     openPosterPanel(slot.id, body);
-  } else if (slot.type === 'inspection') {
+  } else if (slot.type === 'inspection' || slot.type === 'open_challenge') {
     body.innerHTML = teams.map((t, idx) => `
       <div class="slot-panel-team-row">
         <div class="slot-panel-team-left">
@@ -746,14 +803,15 @@ async function openPosterPanel(slotId, body) {
     return;
   }
 
-  // Aggregate scores per presenter
-  const totals = {};  // presenterTeamId → { sum, count, teamName }
+  // Collect raw scores per presenter from all judges
+  const OUTLIER_N = 2;
+  const rawByPresenter = {};  // presenterTeamId → [raw scores]
   snap.docs.forEach(d => {
-    const { scores = {} } = d.data();
+    const { judgeTeamId, scores = {} } = d.data();
     for (const [presenterTeamId, score] of Object.entries(scores)) {
-      if (!totals[presenterTeamId]) totals[presenterTeamId] = { sum: 0, count: 0 };
-      totals[presenterTeamId].sum   += score;
-      totals[presenterTeamId].count += 1;
+      if (presenterTeamId === judgeTeamId) continue; // skip self
+      if (!rawByPresenter[presenterTeamId]) rawByPresenter[presenterTeamId] = [];
+      rawByPresenter[presenterTeamId].push(score);
     }
   });
 
@@ -761,14 +819,19 @@ async function openPosterPanel(slotId, body) {
   const teamNames = {};
   (comp.participatingTeams || []).forEach(t => { teamNames[t.teamId] = t.teamName; });
 
-  const ranked = Object.entries(totals)
-    .map(([teamId, { sum, count }]) => ({
-      teamId,
-      teamName: teamNames[teamId] || teamId,
-      avg: sum / count,
-      count,
-    }))
-    .sort((a, b) => b.avg - a.avg);
+  // Apply scoring formula: scale ×5, drop N highest+lowest, mean of remainder
+  const ranked = Object.entries(rawByPresenter).map(([teamId, raws]) => {
+    const scaled  = raws.map(s => s * 5);
+    let finalScore;
+    if (scaled.length <= 2 * OUTLIER_N) {
+      finalScore = scaled.reduce((a, b) => a + b, 0) / scaled.length;
+    } else {
+      const sorted  = [...scaled].sort((a, b) => a - b);
+      const trimmed = sorted.slice(OUTLIER_N, sorted.length - OUTLIER_N);
+      finalScore    = trimmed.reduce((a, b) => a + b, 0) / trimmed.length;
+    }
+    return { teamId, teamName: teamNames[teamId] || teamId, score: finalScore, count: raws.length };
+  }).sort((a, b) => b.score - a.score);
 
   body.innerHTML = ranked.map((r, i) => `
     <div class="slot-panel-team-row">
@@ -776,7 +839,8 @@ async function openPosterPanel(slotId, body) {
         <span class="slot-panel-team-name">${r.teamName}</span>
       </div>
       <div class="slot-panel-team-right">
-        <span class="slot-panel-score">${r.avg.toFixed(1)} <span style="font-weight:400;opacity:.6;font-size:.85em">(${r.count} votes)</span></span>
+        <span class="slot-panel-score">${r.score.toFixed(1)}<span style="font-weight:400;opacity:.6;font-size:.75em"> /50</span>
+          <span style="font-weight:400;opacity:.5;font-size:.8em;margin-left:4px">(${r.count} judges)</span></span>
       </div>
     </div>
   `).join('');
