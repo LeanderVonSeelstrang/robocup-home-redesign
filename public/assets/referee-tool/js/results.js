@@ -35,8 +35,8 @@ async function init() {
   document.getElementById('results-loading').hidden = true;
   document.getElementById('results-page').hidden = false;
 
-  // Results only ever shows submitted runs — scope the subscription so we don't
-  // download in-progress drafts (and the renderer no longer needs to filter).
+  // Realtime, but scoped to submitted runs — drafts are never shown here, so we don't
+  // download or stream them.
   onSnapshot(
     query(collection(db, 'competitions', compId, 'runs'), where('status', '==', 'submitted')),
     snap => {

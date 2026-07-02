@@ -70,9 +70,27 @@ const links = [
           <span class="ref-landing-label">Final result duration</span>
           <span class="ref-landing-desc">How long Display &amp; Stream hold the result after submit — 0 disables it</span>
           <div class="ref-final-row">
-            <input id="final-secs" type="number" min="0" max="120" step="0.5" value="10" />
+            <input id="final-secs" type="number" min="0" max="120" step="0.5" value="20" />
             <span class="ref-final-unit">seconds</span>
             <span id="final-secs-status" class="ref-final-status" aria-live="polite"></span>
+          </div>
+        </div>
+        <div class="ref-final-card">
+          <span class="ref-landing-label">Stream overlay size</span>
+          <span class="ref-landing-desc">How much width the /streaming text blocks use — 30–100%</span>
+          <div class="ref-final-row">
+            <input id="stream-occupancy" type="number" min="30" max="100" step="5" value="100" />
+            <span class="ref-final-unit">%</span>
+            <span id="stream-occupancy-status" class="ref-final-status" aria-live="polite"></span>
+          </div>
+        </div>
+        <div class="ref-final-card">
+          <span class="ref-landing-label">Info background opacity</span>
+          <span class="ref-landing-desc">How opaque/black the /streaming info boxes are — 30–100% (higher = less transparent)</span>
+          <div class="ref-final-row">
+            <input id="stream-pill-opacity" type="number" min="30" max="100" step="5" value="72" />
+            <span class="ref-final-unit">%</span>
+            <span id="stream-pill-opacity-status" class="ref-final-status" aria-live="polite"></span>
           </div>
         </div>
       </nav>

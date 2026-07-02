@@ -1,16 +1,18 @@
 import { db, ensureAuth } from '../referee-tool/js/firebase.js';
 import {
-  getDocs, collection
+  getDocs, collection, query, where
 } from 'https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js';
 
 (async () => {
   try {
     await ensureAuth();
-    const snap  = await getDocs(collection(db, 'competitions'));
+    // The banner only ever shows the one live event — fetch just active competitions
+    // instead of the whole (heavy) collection on every page load.
+    const snap  = await getDocs(query(collection(db, 'competitions'), where('active', '==', true)));
     const today = new Intl.DateTimeFormat('sv').format(new Date()); // YYYY-MM-DD
     const live  = snap.docs
       .map(d => ({ id: d.id, ...d.data() }))
-      .find(c => c.active && c.startDate && c.endDate
+      .find(c => c.startDate && c.endDate
               && c.startDate <= today && today <= c.endDate);
     if (!live) return;
 

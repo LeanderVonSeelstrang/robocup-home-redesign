@@ -49,7 +49,7 @@
           "points": 0,
           "label": "Tell a visual attribute of the first guest to the second guest",
           "modifiers": [
-            { "id": "correct_attribute", "type": "fixed", "points": 20, "label": "Correct attribute" }
+            { "id": "correct_attribute", "type": "boolean", "points": 20, "label": "Correct attribute" }
           ],
           "penalties": [
             { "id": "incorrect_attribute", "type": "fixed", "points": 20, "label": "Incorrect attribute" }
@@ -121,7 +121,8 @@
         { "id": "wrong_guest_info",   "type": "standalone_penalty", "maxCount": 4, "points": 40,  "label": "Wrong guest information was memorized" },
         { "id": "alternative_hri",    "type": "standalone_penalty", "maxCount": 6, "points": 20,  "label": "Alternative HRI" },
         { "id": "not_acknowledging",  "type": "standalone_penalty", "maxCount": 2, "points": 200, "label": "Not acknowledging people" },
-        { "id": "ask_place_bag",      "type": "standalone_penalty", "maxCount": 1, "points": 25,  "label": "Ask the guest to place the bag somewhere on the robot" }
+        { "id": "request_handover_assist", "type": "standalone_penalty", "maxCount": 1, "points": 25, "label": "Requesting handover assistance from the guest" },
+        { "id": "bag_on_structure",        "type": "standalone_penalty", "maxCount": 1, "points": 50, "label": "Bag placed on the robot structure instead of being handed over" }
       ]
     }
   ]

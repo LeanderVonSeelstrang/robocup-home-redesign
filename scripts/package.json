@@ -3,7 +3,8 @@
   "type": "module",
   "scripts": {
     "migrate": "node migrate.js",
-    "seed:emulator": "node seed-emulator.js"
+    "seed:emulator": "node seed-emulator.js",
+    "import:tests": "node import-tests.js"
   },
   "dependencies": {
     "firebase-admin": "^12.0.0",

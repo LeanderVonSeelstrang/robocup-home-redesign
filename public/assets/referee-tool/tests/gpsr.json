@@ -14,8 +14,7 @@
           "points": 80,
           "label": "Understand the spoken command",
           "penalties": [
-            { "id": "custom_operator", "type": "fixed", "points": 20,  "label": "Using a custom operator" },
-            { "id": "rephrasing",      "type": "fixed", "points": 30,  "label": "Request a rephrasing" }
+            { "id": "custom_operator", "type": "fixed", "points": 20,  "label": "Using a custom operator" }
           ]
         },
         {
@@ -66,6 +65,13 @@
       "id": "penalties",
       "heading": "Penalties",
       "items": [
+        {
+          "id": "rephrasing",
+          "type": "standalone_penalty",
+          "maxCount": 6,
+          "points": 30,
+          "label": "Request a rephrasing"
+        },
         {
           "id": "bypass_speech",
           "type": "standalone_penalty",

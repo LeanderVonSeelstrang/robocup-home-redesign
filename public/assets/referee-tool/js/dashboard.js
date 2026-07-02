@@ -1,6 +1,6 @@
 import { db, ensureRefereeAuth, signOut, auth } from './firebase.js';
 import {
-  collection, doc, getDoc, getDocs, onSnapshot
+  collection, doc, getDoc, getDocs, getDocsFromCache, onSnapshot
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
 
 const params        = new URLSearchParams(window.location.search);
@@ -46,36 +46,49 @@ async function init() {
 // ── COMPETITION PICKER ────────────────────────────────────────────────────────
 
 async function showCompetitionPicker() {
-  const snap = await getDocs(collection(db, 'competitions'));
-  const comps = snap.docs
-    .map(d => d.data())
-    .filter(c => c.name && c.active)
-    .sort((a, b) => {
-      if (a.adminCreated !== b.adminCreated) return a.adminCreated ? -1 : 1;
-      return (b.year || 0) - (a.year || 0);
-    });
+  const compsRef = collection(db, 'competitions');
 
-  const list = document.getElementById('comp-list');
-  for (const comp of comps) {
-    const el = document.createElement('div');
-    el.className = 'comp-item';
-    el.innerHTML = `
-      <div class="comp-info">
-        <div class="comp-item-name">${comp.name}</div>
-        <div class="comp-item-sub">${comp.city || ''}${comp.city && comp.country ? ', ' : ''}${comp.country || ''}</div>
-      </div>
-      <span class="comp-item-arrow">›</span>
-    `;
-    el.addEventListener('click', async () => {
-      list.parentElement.hidden = true;
-      document.getElementById('loading').hidden = false;
-      await showDashboard(comp.id);
-      document.getElementById('loading').hidden = true;
-    });
-    list.appendChild(el);
-  }
+  // Paint from cache instantly (from a prior visit / another page), then refresh from
+  // the server. build() clears and re-renders, so calling it twice is safe.
+  const build = (docs) => {
+    const comps = docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(c => c.name && c.active)
+      .sort((a, b) => {
+        if (a.adminCreated !== b.adminCreated) return a.adminCreated ? -1 : 1;
+        return (b.year || 0) - (a.year || 0);
+      });
 
-  document.getElementById('screen-picker').hidden = false;
+    const list = document.getElementById('comp-list');
+    list.innerHTML = '';
+    for (const comp of comps) {
+      const el = document.createElement('div');
+      el.className = 'comp-item';
+      el.innerHTML = `
+        <div class="comp-info">
+          <div class="comp-item-name">${comp.name}</div>
+          <div class="comp-item-sub">${comp.city || ''}${comp.city && comp.country ? ', ' : ''}${comp.country || ''}</div>
+        </div>
+        <span class="comp-item-arrow">›</span>
+      `;
+      el.addEventListener('click', async () => {
+        list.parentElement.hidden = true;
+        document.getElementById('loading').hidden = false;
+        await showDashboard(comp.id);
+        document.getElementById('loading').hidden = true;
+      });
+      list.appendChild(el);
+    }
+    document.getElementById('screen-picker').hidden = false;
+  };
+
+  try {
+    const cached = await getDocsFromCache(compsRef);
+    if (!cached.empty) build(cached.docs);
+  } catch (_) { /* no cache yet */ }
+
+  const fresh = await getDocs(compsRef);
+  build(fresh.docs);
 }
 
 // ── PIN CHECK ─────────────────────────────────────────────────────────────────

@@ -1,7 +1,9 @@
 :root {
   --radius: 12px;
   --penalty: #ff6b6b;
-  --pill-bg: rgba(13, 17, 23, 0.72);
+  /* Pill background darkness — alpha is admin-tunable via --pill-alpha (set live
+     from the competition's streamPillOpacity). Higher = more opaque/black. */
+  --pill-bg: rgba(13, 17, 23, var(--pill-alpha, 0.72));
   --pill-border: rgba(255, 255, 255, 0.10);
 }
 
@@ -24,18 +26,23 @@ html, body {
   position: fixed;
   inset: 0;
   pointer-events: none;          /* never intercept clicks in OBS */
+  --ov-occupancy: 1;             /* 1 = 100%; set live from the competition's streamOccupancy */
+  --pill-alpha: 0.72;            /* info-pill background opacity; set live from streamPillOpacity */
 }
 
-/* Shared "pill" backing so blocks stay readable over any video. */
+/* Shared "pill" backing so blocks stay readable over any video. The name pills
+   (test/team/final) may occupy up to 44vw, scaled by the admin occupancy setting. */
 .ov-pill {
   position: fixed;
-  background: var(--pill-bg);
+  /* Alpha driven directly by --pill-alpha (set live from streamPillOpacity) so it
+     resolves on the pill itself — no dependence on the :root --pill-bg indirection. */
+  background: rgba(13, 17, 23, var(--pill-alpha, 0.72));
   border: 1px solid var(--pill-border);
   border-radius: 14px;
   padding: 14px 20px;
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
-  max-width: 38vw;
+  max-width: calc(44vw * var(--ov-occupancy));
 }
 
 .ov-pill-unit {
@@ -53,7 +60,8 @@ html, body {
   top: 26px;
   left: 30px;
   font-family: 'Space Mono', monospace;
-  font-size: clamp(0.9rem, 1.5vw, 1.25rem);
+  /* Base ceiling; streaming.js shrinks the inline size to fit one line for long names. */
+  font-size: clamp(1rem, 1.9vw, 1.6rem);
   font-weight: 700;
   color: var(--accent);
   white-space: nowrap;
@@ -114,11 +122,15 @@ html, body {
 
 /* ── FEED (bottom-center) ─────────────────────────────────────────────────── */
 
+/* Span the bottom-center gap between the time (left) and score (right) blocks so the
+   Scoring Activity is as wide as possible without covering them. Fixed rem insets clear
+   the stat columns on the 1920×1080 OBS canvas with only a small gap on each side. */
 #ov-feed {
   bottom: 30px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(34vw, 520px);
+  left: 14rem;
+  right: 14rem;
+  width: auto;
+  transform: none;
   max-width: none;
   padding: 12px 16px;
 }

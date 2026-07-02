@@ -1051,6 +1051,48 @@ select option { background: #1e1f22; }
 
 .btn-danger-link:hover { color: var(--penalty); }
 
+/* ── LIVE CONTROL ────────────────────────────────────────────────── */
+
+.btn-danger {
+  background: color-mix(in srgb, var(--penalty) 16%, transparent);
+  color: var(--penalty);
+  border: 1px solid color-mix(in srgb, var(--penalty) 40%, transparent);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-danger:hover { background: color-mix(in srgb, var(--penalty) 26%, transparent); }
+.btn-danger:disabled { opacity: 0.5; cursor: default; }
+
+.live-now-list { display: flex; flex-direction: column; gap: 8px; }
+
+.live-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.live-row-arena {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.78rem;
+  color: var(--muted);
+  min-width: 84px;
+  flex-shrink: 0;
+}
+.live-row-main { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.live-row-team { font-weight: 600; font-size: 0.9rem; }
+.live-row-test { font-size: 0.8rem; color: var(--muted); }
+.live-row-score {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+.live-row-idle { color: var(--muted); font-size: 0.85rem; padding: 10px 12px; }
+
 /* ── SLOT LINK ───────────────────────────────────────────────────── */
 
 .slot-link-label { font-size: 0.8rem; color: var(--muted); margin-bottom: 8px; }

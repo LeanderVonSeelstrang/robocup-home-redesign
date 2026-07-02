@@ -101,7 +101,7 @@
             {
               "id": "fold_add_flatten",
               "type": "fixed",
-              "points": 200,
+              "points": 100,
               "label": "Human assistance: Flattening/Arranging clothing before folding"
             },
             {

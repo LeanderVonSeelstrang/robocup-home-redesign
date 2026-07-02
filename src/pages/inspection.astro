@@ -32,6 +32,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       <div id="insp-title-wrap">
         <div id="insp-team-name">—</div>
         <div id="insp-subtitle">Robot Inspection</div>
+        <div id="insp-robot-switch" class="insp-robot-switch"></div>
       </div>
       <div id="save-status" class="save-status"></div>
       <div id="insp-nav" class="sheet-nav-btns"></div>
@@ -85,11 +86,6 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     </div>
 
     <footer id="insp-footer">
-      <div id="unlock-confirm" class="insp-confirm" hidden>
-        <span>Unlock this sheet for editing?</span>
-        <button id="unlock-confirm-ok"     class="btn-ghost">Unlock</button>
-        <button id="unlock-confirm-cancel" class="btn-ghost">Cancel</button>
-      </div>
       <div id="reset-confirm" class="insp-confirm" hidden>
         <span>Reset and clear all inspection data? This cannot be undone.</span>
         <button id="reset-confirm-ok"     class="btn-ghost btn-danger">Reset</button>
@@ -105,7 +101,6 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       </div>
       <div class="insp-footer-actions">
         <button id="reset-btn"  class="btn-ghost btn-danger">Reset</button>
-        <button id="unlock-btn" class="btn-ghost" hidden>Unlock</button>
         <button id="submit-btn" class="btn-primary insp-submit" disabled>Submit Inspection</button>
       </div>
     </footer>

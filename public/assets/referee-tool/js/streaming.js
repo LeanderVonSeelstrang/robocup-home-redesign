@@ -1,6 +1,6 @@
 import { db, ensureAuth } from './firebase.js';
 import {
-  collection, doc, getDoc, getDocs, onSnapshot, query, orderBy, limit
+  collection, doc, getDoc, getDocs, getDocsFromCache, onSnapshot, query, where, orderBy, limit
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
 
 // Stream overlay — a transparent variant of the /display page, built for an OBS
@@ -8,6 +8,9 @@ import {
 // small blocks pinned to the corners; everything else is transparent so the game
 // video shows through. Selection is driven by ?competition=&arena= URL params so a
 // fixed OBS URL needs no clicking; a picker is shown only when they're absent.
+
+// Slot types that are not scored via /scoresheet — runs on these never go live on the overlay.
+const NON_TEST_SLOT_TYPES = new Set(['inspection', 'poster', 'mapping', 'other']);
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
 
@@ -21,7 +24,7 @@ let unsubRuns        = null;
 let unsubComp        = null;
 let unsubFeed        = null;   // live listener on the active run's feed subcollection
 let feedRunId        = null;   // which run unsubFeed is currently following
-let finalResultSecs  = 10;     // post-submit "Final" flash duration (set on /referee)
+let finalResultSecs  = 20;     // post-submit "Final" flash duration (set on /referee)
 
 let timerInterval = null;
 let timerState    = null;
@@ -88,14 +91,33 @@ function startArena() {
   // Stay transparent until a run actually appears.
   hideOverlay();
 
-  // Configurable "Final" flash duration, kept live (set on /referee).
+  // Configurable "Final" flash duration + overlay text width, kept live (set on /referee).
   unsubComp = onSnapshot(doc(db, 'competitions', selectedCompId), snap => {
-    const v = Number(snap.data()?.finalResultSecs);
-    finalResultSecs = Number.isFinite(v) && v >= 0 ? v : 10;
+    const data = snap.data() || {};
+    const v = Number(data.finalResultSecs);
+    finalResultSecs = Number.isFinite(v) && v >= 0 ? v : 20;
+
+    const overlayEl = document.getElementById('overlay');
+
+    // streamOccupancy: 30–100 (%). Unset/invalid ⇒ 100. Scales the name pills' width.
+    let occ = Number(data.streamOccupancy);
+    if (!Number.isFinite(occ)) occ = 100;
+    occ = Math.min(100, Math.max(30, occ));
+    overlayEl.style.setProperty('--ov-occupancy', occ / 100);
+
+    // streamPillOpacity: 30–100 (%). Unset/invalid ⇒ 72 (the original look).
+    // Controls how opaque/black the info-pill backgrounds are.
+    let alpha = Number(data.streamPillOpacity);
+    if (!Number.isFinite(alpha)) alpha = 72;
+    alpha = Math.min(100, Math.max(30, alpha));
+    overlayEl.style.setProperty('--pill-alpha', alpha / 100);
+
+    if (activeRunId) fitTestName();   // available width changed — re-fit the name
   });
 
+  // This arena's slots only — the overlay never shows other arenas.
   unsubSlots = onSnapshot(
-    collection(db, 'competitions', selectedCompId, 'slots'),
+    query(collection(db, 'competitions', selectedCompId, 'slots'), where('arena', '==', selectedArena)),
     snap => {
       competitionSlots = {};
       snap.docs.forEach(d => { competitionSlots[d.id] = { id: d.id, ...d.data() }; });
@@ -133,9 +155,14 @@ function checkActiveRun() {
       .map(([id]) => id)
   );
 
-  // Draft runs for those slots, most recently updated first
+  // Draft runs for those slots, most recently updated first.
+  // Exclude runs on non-scored slot types (inspection/poster/mapping/other) — an
+  // in-progress inspection writes a draft run doc but has no test/score/timer, so it
+  // must never take over the live screen. Exclusion list (not a 'test' whitelist) so
+  // Finals and any future scored slot type keep working.
   const candidates = Object.entries(currentRuns)
-    .filter(([, r]) => r.status === 'draft' && r.slotId && arenaSlotIds.has(r.slotId))
+    .filter(([, r]) => r.status === 'draft' && r.slotId && arenaSlotIds.has(r.slotId)
+      && !NON_TEST_SLOT_TYPES.has(competitionSlots[r.slotId]?.type))
     .sort(([, a], [, b]) => (b.updatedAt?.seconds ?? 0) - (a.updatedAt?.seconds ?? 0));
 
   const newActiveRunId = candidates[0]?.[0] ?? null;
@@ -204,9 +231,28 @@ function showFinalResult(run) {
 function renderRun(data) {
   document.getElementById('ov-test').textContent = data.testName || data.testId || '—';
   document.getElementById('ov-team').textContent = data.teamName || '—';
+  fitTestName();
   updateScore(data.totalScore ?? 0);
   updateTimerState(data.timerState ?? null);
   // The feed comes from its own subcollection listener (subscribeFeed), not the run doc.
+}
+
+// Shrink the top-left test name to fit on one line. The pill is nowrap + max-width
+// capped, so overflow (scrollWidth > clientWidth) only happens for genuinely long
+// names — short ones keep the full CSS font size. Runs after layout via rAF; re-run
+// whenever the name or the occupancy width changes.
+function fitTestName() {
+  const el = document.getElementById('ov-test');
+  if (!el) return;
+  requestAnimationFrame(() => {
+    el.style.fontSize = '';                                    // back to the CSS base
+    let size = parseFloat(getComputedStyle(el).fontSize) || 20;
+    const MIN = 12;
+    while (el.scrollWidth > el.clientWidth && size > MIN) {
+      size -= 1;
+      el.style.fontSize = `${size}px`;
+    }
+  });
 }
 
 // Follow the active run's append-only feed (runs/{id}/feed) as a scoped listener, so the
@@ -326,40 +372,52 @@ function updateFeed(feed) {
 // ── SETUP PICKER (only when ?competition / ?arena are absent) ────────────────────
 
 async function showCompPicker() {
-  const snap = await getDocs(collection(db, 'competitions'));
-  const comps = snap.docs
-    .map(d => ({ id: d.id, ...d.data() }))
-    .filter(c => c.name && c.active)
-    .sort((a, b) => {
-      if (a.adminCreated !== b.adminCreated) return a.adminCreated ? -1 : 1;
-      return (b.year || 0) - (a.year || 0);
-    });
+  const compsRef = collection(db, 'competitions');
 
-  const list = document.getElementById('pk-comp-list');
-  list.innerHTML = '';
+  // Paint from cache instantly (from a prior visit / another page), then refresh from the
+  // server. build() clears and re-renders, so calling it twice is safe.
+  const build = (docs) => {
+    const comps = docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(c => c.name && c.active)
+      .sort((a, b) => {
+        if (a.adminCreated !== b.adminCreated) return a.adminCreated ? -1 : 1;
+        return (b.year || 0) - (a.year || 0);
+      });
 
-  for (const comp of comps) {
-    const btn = document.createElement('button');
-    btn.className = 'pk-item';
-    btn.innerHTML = `
-      <div>
-        <div>${comp.name}</div>
-        ${comp.city || comp.country
-          ? `<div class="pk-item-sub">${[comp.city, comp.country].filter(Boolean).join(', ')}</div>`
-          : ''}
-      </div>
-      <span class="pk-item-arrow">›</span>
-    `;
-    btn.addEventListener('click', () => selectCompetition(comp));
-    list.appendChild(btn);
-  }
+    const list = document.getElementById('pk-comp-list');
+    list.innerHTML = '';
+    for (const comp of comps) {
+      const btn = document.createElement('button');
+      btn.className = 'pk-item';
+      btn.innerHTML = `
+        <div>
+          <div>${comp.name}</div>
+          ${comp.city || comp.country
+            ? `<div class="pk-item-sub">${[comp.city, comp.country].filter(Boolean).join(', ')}</div>`
+            : ''}
+        </div>
+        <span class="pk-item-arrow">›</span>
+      `;
+      btn.addEventListener('click', () => selectCompetition(comp));
+      list.appendChild(btn);
+    }
 
-  document.getElementById('pk-comp-list').hidden    = false;
-  document.getElementById('pk-arena-section').hidden = true;
-  document.getElementById('pk-obs').hidden           = true;
-  document.getElementById('pk-sub').textContent      = 'Select a competition';
-  document.getElementById('picker').hidden           = false;
-  document.getElementById('overlay').hidden          = true;
+    document.getElementById('pk-comp-list').hidden     = false;
+    document.getElementById('pk-arena-section').hidden = true;
+    document.getElementById('pk-obs').hidden           = true;
+    document.getElementById('pk-sub').textContent      = 'Select a competition';
+    document.getElementById('picker').hidden           = false;
+    document.getElementById('overlay').hidden          = true;
+  };
+
+  try {
+    const cached = await getDocsFromCache(compsRef);
+    if (!cached.empty) build(cached.docs);
+  } catch (_) { /* no cache yet */ }
+
+  const fresh = await getDocs(compsRef);
+  build(fresh.docs);
 }
 
 async function selectCompetition(comp) {
@@ -426,5 +484,10 @@ document.getElementById('pk-obs-open').addEventListener('click', () => {
 });
 
 // ── GO ────────────────────────────────────────────────────────────────────────
+
+// Space Mono metrics can change the name's width once the font loads — re-fit then.
+if (document.fonts?.ready) {
+  document.fonts.ready.then(() => { if (activeRunId) fitTestName(); });
+}
 
 init().catch(err => console.error(err));

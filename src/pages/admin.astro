@@ -210,7 +210,10 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   <div id="screen-slots" class="screen" hidden>
     <div class="screen-header">
       <h2 id="slots-title">Slots</h2>
-      <button class="btn-primary" id="new-slot-btn">Edit Schedule</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn-ghost" id="live-control-btn">◉ Live control</button>
+        <button class="btn-primary" id="new-slot-btn">Edit Schedule</button>
+      </div>
     </div>
 
     <div class="card form-card" id="arenas-card">
@@ -289,6 +292,43 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     <div id="poster-matrix-section">
       <div class="poster-section-title">Scoring Progress</div>
       <div id="poster-matrix"></div>
+    </div>
+  </div>
+
+  <!-- SCREEN: Live control -->
+  <div id="screen-live" class="screen" hidden>
+    <div class="screen-header">
+      <h2>Live control</h2>
+      <button class="btn-danger" id="close-all-runs-btn">Close all running runs</button>
+    </div>
+    <div class="card form-card">
+      <h3>Now on display</h3>
+      <div class="field-hint" style="margin-bottom:12px">The run each arena's /display is currently showing live. Click "End" to force it off the display.</div>
+      <div id="live-now-list" class="live-now-list"></div>
+    </div>
+  </div>
+
+  <!-- Close-all-running confirmation overlay -->
+  <div id="close-runs-overlay" class="test-preview-overlay" hidden>
+    <div class="test-preview-modal">
+      <div class="test-preview-header">
+        <div>
+          <div class="test-preview-title">Close all running runs</div>
+          <div class="test-preview-meta">Emergency use only — this should almost never be needed.</div>
+        </div>
+        <button class="btn-icon" id="close-runs-modal-close" title="Close">×</button>
+      </div>
+      <div class="test-preview-body">
+        <p style="color:var(--penalty);font-size:0.85rem;margin:0 0 12px">
+          This force-closes every run below so it stops showing on /display. It does <strong>not</strong> submit a score
+          — closed runs won't appear on the results leaderboard. A referee still scoring will re-open theirs automatically on their next edit.
+        </p>
+        <div id="close-runs-list" class="live-now-list"></div>
+      </div>
+      <div class="test-preview-actions">
+        <button class="btn-danger" id="close-runs-confirm">Close ALL running</button>
+        <button class="btn-ghost"   id="close-runs-cancel">Cancel</button>
+      </div>
     </div>
   </div>
 

@@ -8,6 +8,13 @@ const competitionId = p.get('competition');
 const teamId        = p.get('team');
 const teamName      = p.get('teamName') || 'Unknown Team';
 const slotId        = p.get('slot');
+// Teams may bring 1 or 2 robots. Robot 1 is the original per-team inspection
+// (doc id = teamId, backward-compatible); robot 2 lives in a separate doc.
+const robot         = p.get('robot') === '2' ? 2 : 1;
+const inspDocId     = robot === 2 ? `${teamId}_2` : teamId;
+const runDocId      = robot === 2 ? `${slotId}_${teamId}_2` : `${slotId}_${teamId}`;
+
+const UNLOCK_DELAY_MS = 5000; // matches the scoresheet's reopen delay
 
 // Doc refs are created inside init() to avoid module-level crash on missing params
 
@@ -20,6 +27,7 @@ let saveTimer = null;
 let submitted = false;
 let inspRef   = null;
 let runRef    = null;
+let unlockTimeout = null;
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 
@@ -31,10 +39,22 @@ async function init() {
     return;
   }
 
-  inspRef = doc(db, 'competitions', competitionId, 'inspections', teamId);
-  runRef  = slotId ? doc(db, 'competitions', competitionId, 'runs', `${slotId}_${teamId}`) : null;
+  inspRef = doc(db, 'competitions', competitionId, 'inspections', inspDocId);
+  runRef  = slotId ? doc(db, 'competitions', competitionId, 'runs', runDocId) : null;
 
   document.getElementById('insp-team-name').textContent = teamName;
+  if (robot === 2) document.getElementById('insp-subtitle').textContent = 'Robot Inspection · Robot 2';
+
+  // Robot switcher: probe whether a second robot's inspection exists to decide
+  // between the "Robot 2" tab and the "+ Add robot" affordance.
+  let hasRobot2 = robot === 2;
+  if (robot === 1) {
+    try {
+      const r2 = await getDoc(doc(db, 'competitions', competitionId, 'inspections', `${teamId}_2`));
+      hasRobot2 = r2.exists();
+    } catch { /* ignore — default to no second robot */ }
+  }
+  renderRobotSwitch(hasRobot2);
 
   if (p.get('back')) {
     document.getElementById('back-link').href = p.get('back');
@@ -142,13 +162,6 @@ function wireOneTimeButtons() {
     document.getElementById('reset-confirm').hidden = true;
     await resetInspection();
   };
-  document.getElementById('unlock-confirm-cancel').onclick = () => {
-    document.getElementById('unlock-confirm').hidden = true;
-  };
-  document.getElementById('unlock-confirm-ok').onclick = async () => {
-    document.getElementById('unlock-confirm').hidden = true;
-    await unlockForm();
-  };
 }
 
 function renderResult() {
@@ -169,6 +182,35 @@ function updateSubmitBtn() {
   btn.disabled = submitted || result === null;
 }
 
+// ── ROBOT SWITCHER ──────────────────────────────────────────────────────────────
+
+function buildRobotUrl(n) {
+  const np = new URLSearchParams(p);
+  if (n === 1) np.delete('robot'); else np.set('robot', String(n));
+  return `${window.__siteBase || ''}/inspection?${np}`;
+}
+
+function renderRobotSwitch(hasRobot2) {
+  const el = document.getElementById('insp-robot-switch');
+  if (!el) return;
+  el.innerHTML = '';
+
+  const tab = (label, n, active, extraClass = '') => {
+    const node = document.createElement(active ? 'span' : 'a');
+    node.className = 'insp-robot-tab' + (active ? ' active' : '') + (extraClass ? ` ${extraClass}` : '');
+    node.textContent = label;
+    if (!active) node.href = buildRobotUrl(n);
+    return node;
+  };
+
+  el.appendChild(tab('Robot 1', 1, robot === 1));
+  if (hasRobot2) {
+    el.appendChild(tab('Robot 2', 2, robot === 2));
+  } else {
+    el.appendChild(tab('+ Add robot', 2, false, 'add'));
+  }
+}
+
 // ── SAVE ──────────────────────────────────────────────────────────────────────
 
 function scheduleSave() {
@@ -184,7 +226,7 @@ async function save(status) {
   if (!inspRef) return;
   try {
     const payload = {
-      teamId, teamName, competitionId, slotId,
+      teamId, teamName, competitionId, slotId, robot,
       ...checks,
       ...Object.fromEntries(Object.entries(texts).filter(([k]) => k !== 'notes')),
       notes: texts.notes,
@@ -216,35 +258,55 @@ async function submitInspection() {
 }
 
 function lockForm() {
-  document.getElementById('submit-btn').textContent = result === 'pass' ? 'Passed ✓' : 'Failed ✗';
-  document.getElementById('submit-btn').disabled = true;
+  const btn = document.getElementById('submit-btn');
+  btn.textContent = result === 'pass' ? 'Passed ✓' : 'Failed ✗';
+  btn.disabled = true;
+  btn.onclick = null;
+  btn.classList.add('submitted-btn');
+  btn.classList.remove('unlock-btn');
   document.querySelectorAll('.insp-check-item').forEach(el => el.classList.add('locked'));
   document.querySelectorAll('.insp-textarea').forEach(el => el.disabled = true);
   document.getElementById('btn-pass').disabled = true;
   document.getElementById('btn-fail').disabled = true;
-  document.getElementById('unlock-btn').hidden = false;
-  document.getElementById('unlock-btn').onclick = () => {
-    document.getElementById('unlock-confirm').hidden = false;
-  };
   setSaveStatus('Inspection submitted.');
+
+  // After a short delay, offer a reopen affordance (mirrors the scoresheet).
+  if (unlockTimeout) clearTimeout(unlockTimeout);
+  unlockTimeout = setTimeout(() => {
+    btn.textContent = '🔓 Unlock';
+    btn.disabled = false;
+    btn.classList.remove('submitted-btn');
+    btn.classList.add('unlock-btn');
+    btn.onclick = () => {
+      if (window.confirm('Reopen this inspection for editing?')) unlockForm();
+    };
+  }, UNLOCK_DELAY_MS);
 }
 
 async function unlockForm() {
   submitted = false;
-  document.getElementById('submit-btn').textContent = 'Submit Inspection';
-  document.getElementById('submit-btn').disabled = result === null;
-  document.getElementById('submit-btn').onclick = submitInspection;
+  if (unlockTimeout) { clearTimeout(unlockTimeout); unlockTimeout = null; }
+
+  const btn = document.getElementById('submit-btn');
+  btn.classList.remove('submitted-btn', 'unlock-btn');
+  btn.textContent = 'Submit Inspection';
+  btn.onclick = submitInspection;
   document.querySelectorAll('.insp-check-item').forEach(el => el.classList.remove('locked'));
   document.querySelectorAll('.insp-textarea').forEach(el => { el.disabled = false; });
   document.getElementById('btn-pass').disabled = false;
   document.getElementById('btn-fail').disabled = false;
-  document.getElementById('unlock-btn').hidden = true;
-  setSaveStatus('Unlocked.');
+  updateSubmitBtn();
+  setSaveStatus('Inspection reopened.');
   setTimeout(() => setSaveStatus(''), 2000);
+
+  // Persist the reopen so it survives reload.
   try {
     await setDoc(inspRef, { submitted: false, updatedAt: serverTimestamp() }, { merge: true });
     if (runRef) await setDoc(runRef, { status: 'draft', updatedAt: serverTimestamp() }, { merge: true });
-  } catch (err) { console.error('Failed to persist unlock:', err); }
+  } catch (err) {
+    setSaveStatus('Reopen failed to save');
+    console.error(err);
+  }
 }
 
 async function resetInspection() {
@@ -253,15 +315,17 @@ async function resetInspection() {
   Object.assign(texts,  { externalDevices: '', startButton: '', customContainers: '', emergencyButton: '', notes: '' });
   result    = null;
   submitted = false;
+  if (unlockTimeout) { clearTimeout(unlockTimeout); unlockTimeout = null; }
 
   // Re-enable and re-render the whole form
   document.querySelectorAll('.insp-check-item').forEach(el => el.classList.remove('locked'));
   document.querySelectorAll('.insp-textarea').forEach(el => { el.disabled = false; el.value = ''; });
   document.getElementById('btn-pass').disabled = false;
   document.getElementById('btn-fail').disabled = false;
-  document.getElementById('unlock-btn').hidden = true;
-  document.getElementById('submit-btn').textContent = 'Submit Inspection';
-  document.getElementById('submit-btn').onclick = submitInspection;
+  const submitBtn = document.getElementById('submit-btn');
+  submitBtn.classList.remove('submitted-btn', 'unlock-btn');
+  submitBtn.textContent = 'Submit Inspection';
+  submitBtn.onclick = submitInspection;
   renderAll();
   setSaveStatus('Reset.');
   setTimeout(() => setSaveStatus(''), 2000);
