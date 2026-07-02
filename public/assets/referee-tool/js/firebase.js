@@ -1,7 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-app.js";
 import {
   initializeFirestore,
-  persistentLocalCache,
+  memoryLocalCache,
   connectFirestoreEmulator
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
 import {
@@ -28,13 +28,12 @@ const USE_EMULATOR =
   typeof location !== 'undefined' &&
   (location.hostname === 'localhost' || location.hostname === '127.0.0.1');
 
-// IndexedDB-backed cache with default LRU eviction (~40MB): bounds memory in a
-// long-lived tab (display/overlay left open all day) and avoids re-downloading the
-// whole dataset on each reload. Single-tab manager (default) avoids the cross-tab
-// IndexedDB lock that persistentMultipleTabManager needs — that lock hangs indefinitely
-// on Safari/iOS, causing the dashboard to show "loading..." forever with an empty console.
+// Memory cache: avoids all IndexedDB usage. IndexedDB initialization hangs silently
+// on some Safari/iOS versions (empty console, perpetual loading), so we use the same
+// in-memory approach as firebase-public.js. Referee pages use onSnapshot listeners
+// for live data, so no persistent cache is needed within a session.
 export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache(),
+  localCache: memoryLocalCache(),
   experimentalAutoDetectLongPolling: true,
   ...(USE_EMULATOR ? { experimentalForceLongPolling: true } : {})
 });
